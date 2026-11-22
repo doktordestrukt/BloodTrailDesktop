@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07070a"/>
+      <stop offset="0.55" stop-color="#120407"/>
+      <stop offset="1" stop-color="#2a0208"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.72" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#ff1f3d" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ff1f3d" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffb3bd"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff1f3d"/>
+      <stop offset="1" stop-color="#8a0012"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ff1f3d" stroke-opacity="0.07" stroke-width="1"/>
+    </pattern>
+    <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="1" fill="#000" fill-opacity="0.25"/>
+    </pattern>
+    <filter id="neon" x="-20%" y="-50%" width="140%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="360" fill="url(#bg)"/>
+  <rect width="1280" height="360" fill="url(#grid)"/>
+  <rect width="1280" height="360" fill="url(#glow)"/>
+
+  <!-- crosshair reticle -->
+  <g transform="translate(1010 180)" fill="none" stroke="#ff1f3d" filter="url(#neon)">
+    <circle r="112" stroke-opacity="0.35" stroke-width="1.5">
+      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="24s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="112" stroke-width="3" stroke-dasharray="60 116">
+      <animateTransform attributeName="transform" type="rotate" from="360" to="0" dur="12s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="78" stroke-opacity="0.6" stroke-width="1.5" stroke-dasharray="4 8"/>
+    <path d="M-150 0H-36M36 0H150M0 -150V-36M0 36V150" stroke-width="2.5"/>
+    <path d="M-14 0H14M0 -14V14" stroke="#ffffff" stroke-width="2.5"/>
+    <path d="M-96 -96l18 0M-96 -96l0 18M96 -96l-18 0M96 -96l0 18M-96 96l18 0M-96 96l0 -18M96 96l-18 0M96 96l0 -18" stroke-width="3"/>
+  </g>
+
+  <!-- left accent bar -->
+  <rect x="64" y="70" width="6" height="220" fill="url(#red)"/>
+
+  <text x="96" y="104" font-family="Consolas, 'Courier New', monospace" font-size="18" letter-spacing="6" fill="#ff1f3d">// UE4SS MOD  ·  BLOOD TRAIL</text>
+  <text x="92" y="190" font-family="'Segoe UI', 'Arial Black', Arial, sans-serif" font-weight="900" font-size="86" letter-spacing="2" fill="url(#title)">BLOODTRAIL</text>
+  <text x="96" y="252" font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="54" letter-spacing="22" fill="#ff1f3d" filter="url(#neon)">DESKTOP</text>
+  <text x="96" y="296" font-family="Consolas, 'Courier New', monospace" font-size="17" letter-spacing="2" fill="#c9c9d1">KEYBOARD + MOUSE  ·  NO HEADSET  ·  FIRST-PERSON VIEWMODEL  ·  2D HUD</text>
+
+  <!-- status chip -->
+  <g transform="translate(1128 34)">
+    <rect width="120" height="26" rx="3" fill="none" stroke="#ff1f3d" stroke-opacity="0.8"/>
+    <circle cx="16" cy="13" r="4" fill="#ff1f3d"><animate attributeName="opacity" values="1;0.2;1" dur="1.6s" repeatCount="indefinite"/></circle>
+    <text x="28" y="18" font-family="Consolas, monospace" font-size="13" letter-spacing="2" fill="#ffffff">BUILD 1.0.0</text>
+  </g>
+
+  <!-- bottom data strip -->
+  <rect x="0" y="340" width="1280" height="20" fill="#0b0b0f"/>
+  <rect x="0" y="340" width="1280" height="2" fill="url(#red)"/>
+  <text x="64" y="355" font-family="Consolas, monospace" font-size="11" letter-spacing="3" fill="#ff1f3d" fill-opacity="0.85">SYS.READY  ▮  VRPAWN::DESKTOP_DRIVE  ▮  GRIP.RIGID  ▮  AIM.ZERO_DEVIATION  ▮  HUD.UMG  ▮  SND.UNMUTED</text>
+
+  <rect width="1280" height="360" fill="url(#scan)"/>
+</svg>
