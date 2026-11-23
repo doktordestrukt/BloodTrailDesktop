@@ -12,7 +12,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.3.2"
+$Version = "1.3.3"
 $UE4SSZip = Join-Path $Root "third_party\ue4ss\UE4SS_v3.0.1-1181-g83330635.zip"
 $UE4SSSha = "b9a166a756605b21058a64cde93bcaab1a855dba3553e5c7e6ce0fa8fdfad7b9"
 $Marker = ".installed-by-btdesktop"
@@ -36,7 +36,8 @@ function Banner {
 
 # ------------------------------------------------------------------ find the game
 function Test-GameDir([string]$d) {
-    return $d -and (Test-Path -LiteralPath (Join-Path $d "BTVR\Binaries\Win64\BTVR-Win64-Shipping.exe"))
+    if (-not $d) { return $false }
+    try { return [bool](Test-Path -LiteralPath ([IO.Path]::Combine($d, "BTVR\Binaries\Win64\BTVR-Win64-Shipping.exe")) -ErrorAction SilentlyContinue) } catch { return $false }
 }
 function Find-Game {
     $roots = New-Object System.Collections.Generic.List[string]
@@ -49,23 +50,28 @@ function Find-Game {
     $libs = New-Object System.Collections.Generic.List[string]
     foreach ($r in $roots) {
         $libs.Add($r)
-        $vdf = Join-Path $r "steamapps\libraryfolders.vdf"
-        if (Test-Path -LiteralPath $vdf) {
+        # [IO.Path]::Combine: Join-Path fails on drives that no longer exist (a removed Steam library drive)
+        $vdf = [IO.Path]::Combine($r, "steamapps\libraryfolders.vdf")
+        if (Test-Path -LiteralPath $vdf -ErrorAction SilentlyContinue) {
             foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $vdf), '"path"\s+"([^"]+)"')) {
                 $libs.Add(($m.Groups[1].Value -replace '\\\\', '\'))
             }
         }
     }
     foreach ($l in ($libs | Select-Object -Unique)) {
-        $d = Join-Path $l "steamapps\common\Blood Trail"
-        if (Test-GameDir $d) { return $d }
+        try {
+            $d = [IO.Path]::Combine($l, "steamapps\common\Blood Trail")
+            if (Test-GameDir $d) { return $d }
+        } catch {}
     }
     # common places, every drive
     foreach ($drv in (Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Root })) {
         foreach ($sub in @("SteamLibrary\steamapps\common\Blood Trail", "Steam\steamapps\common\Blood Trail",
                            "Program Files (x86)\Steam\steamapps\common\Blood Trail", "Games\Blood Trail")) {
-            $d = Join-Path $drv $sub
-            if (Test-GameDir $d) { return $d }
+            try {
+                $d = [IO.Path]::Combine($drv, $sub)
+                if (Test-GameDir $d) { return $d }
+            } catch {}
         }
     }
     return $null
