@@ -56,6 +56,7 @@
 | **◆ Melee that hits** | Swings trace from your eye and deal real damage through the game's damage path. |
 | **◆ Game actions** | Crack heal, night vision, flashlight, grenades, click-to-press buttons and boards. |
 | **◆ 2D HUD** | Black/red UMG HUD: loadout bar, ammo ticks, fire mode, health, white crosshair. |
+| **◆ Settings menu** | Esc: graphics, rebindable controls, gameplay options and the wrist-watch info, all saved. |
 | **◆ Movement** | Sprint, crouch, jump, military view bob, low-ready when sprinting. |
 | **◆ Sound fixed** | The game mutes itself without VR focus — the installer fixes that. |
 
@@ -84,9 +85,9 @@ To play in VR again: run `Uninstall.bat` and remove `-nohmd`.
 | `Shift` | sprint | `Ctrl` / `C` | crouch |
 | `Space` | jump | `Esc` | menu / change map |
 | `LMB` | fire · melee · throw · touch | `RMB` (hold) / `Z` | aim down sights |
-| `Wheel` | switch weapon (zoom while aiming) | `1`–`9` | pick weapon slot |
+| `Wheel` | switch weapon (zoom while aiming) | `1`–`9` `0` `-` | pick weapon slot (knife `0`, bat `-`) |
 | `R` | reload | `B` | fire mode |
-| `E` | press / touch what you look at | `Q` / `0` | holster |
+| `E` | press / touch what you look at | `Q` | holster |
 | `G` | grab / drop | `T` / `MMB` | throw pipe bomb |
 | `H` | crack (heal) | `N` | night vision |
 | `F` | flashlight | `V` | reset hands |
@@ -97,7 +98,7 @@ To play in VR again: run `Uninstall.bat` and remove `-nohmd`.
 `F1` debug text · `F2` god mode · `F3` spawn NPC · `F4` noclip · `F5` slow motion · `F6` release mouse · `F7` game's own keys · `F8` status to log · `J` diagnostics · `Alt`/`X` + mouse move a hand freely
 </details>
 
-Settings live in `BTVR\Binaries\Win64\ue4ss\Mods\BTDesktop\BTDesktop.ini` (FOV, aim FOV, sensitivity, walk speed, sprint, view bob, start map, aim toggle…).
+**Every key can be rebound in game: `Esc` → CONTROLS.** `Esc` also has GRAPHICS (preset, shadows, textures, AA, resolution scale, vsync, frame limit, window mode, FOV), GAMEPLAY (aim zoom, view bob, speeds, crosshair, gloves) and WATCH (health, crack, kills, score — what the wrist watch shows in VR). All saved to `BTDesktop.ini`.
 
 ## ◆ Architecture
 
@@ -137,10 +138,10 @@ flowchart LR
 |---|---|
 | **Boot** | Without a headset the game never spawns a player. ~1.5 s after a level loads the mod asks the game mode to `RestartPlayer`, and if nothing appears it spawns `WendigoVrChar_C` at the PlayerStart and possesses it. Then it switches the HMD off and takes over camera and hands. The basement's early-access board is acknowledged for you. |
 | **View** | Yaw turns the pawn, pitch tilts `VRReplicatedCamera`. Eye height, crouch, FOV/zoom and a military view bob (step dip, foot sway, roll) are applied to the camera's relative transform. |
-| **Hands** | `Left/RightMotionController` are posed every frame in body space (the camera's parent), so they move in the same frame as you — no lag. The game's physics gloves, which chase the controllers and fly off without VR tracking, are pinned and hidden; the rigid hand meshes are shown. |
-| **Grip** | Each weapon is spawned once per slot and gripped through the pawn's own `TryToGrabObject`, so the game treats it as genuinely held. The grip is made rigid and paused; the weapon stays in the grip list. |
-| **Viewmodel** | The game keeps the weapon on the controller with its own grip offset. The mod measures that offset from both world transforms every frame and poses the controller as *weapon × offset⁻¹*, so the gun lands exactly at its camera-space pose — perfectly still while walking, strafing or turning. |
-| **Aim** | A smoothed camera line trace finds what's under the crosshair; the muzzle (`FireDirection`) is turned at it. Measured from the game's pooled bullets: rounds leave along `FireDirection` with 0.00° deviation, so shots land on the crosshair at the hip and down the sights. |
+| **Hands** | `Left/RightMotionController` are posed every frame in body space (the camera's parent), so they move in the same frame as you — no lag. The game's physics gloves, which chase the controllers and fly off without VR tracking, are pinned to the controllers with physics off and shown, so the real gloves hold the gun. |
+| **Grip** | Each weapon is spawned once per slot and gripped through the pawn's own `TryToGrabObject`, so the game treats it as genuinely held. The grip is switched to VRExpansion's `AttachmentGrip` (a real scene attachment to the hand, not a physics handle) and paused; the weapon stays in the grip list. |
+| **Viewmodel** | The game keeps the weapon on the controller with its own grip offset. The mod measures that offset from both world transforms every frame and poses the controller as *weapon × offset⁻¹*, so the gun lands exactly at its camera-space pose. The offset is measured once and locked, so nothing re-measures (and shakes) frame to frame — perfectly still while walking, strafing or turning. The pose is levelled so the gun's top always points up. |
+| **Aim** | Every weapon is zeroed at 25 m: the muzzle (`FireDirection`) points at the crosshair at that range, hip or sights, without swinging around with whatever is under the crosshair. Measured from the game's pooled bullets: rounds leave along `FireDirection` with 0.00° deviation, so shots land on the crosshair at the hip and down the sights. |
 | **Weapons** | Trigger = the pawn's `UseHeldItems`. Fire modes = the gun's `Firingmode` (0 auto · 1 semi · 2 burst). Reload fills the magazine, releases the bolt and chambers a round. |
 | **Melee** | Swings trace from the eye; hits go to the NPC's `BludgeonDamage` / `StabbingDamage`, falling back to the same damage event the game's bullets use. |
 | **HUD** | A game widget class is created only as a host; its widget tree is replaced with the mod's own canvas, images and text — screen space, never clipped or darkened. |
