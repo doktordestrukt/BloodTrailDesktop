@@ -12,7 +12,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.3.0"
+$Version = "1.3.1"
 $UE4SSZip = Join-Path $Root "third_party\ue4ss\UE4SS_v3.0.1-1181-g83330635.zip"
 $UE4SSSha = "b9a166a756605b21058a64cde93bcaab1a855dba3553e5c7e6ce0fa8fdfad7b9"
 $Marker = ".installed-by-btdesktop"

@@ -1677,6 +1677,12 @@ local function updateHands(dt, mx, my, moving)
                 lq = qmul(ohq, qconj(gOffQ))
                 local px, py, pz = qrot(lq, gOffP[1], gOffP[2], gOffP[3])
                 lp = { gp[1] + ox2 - px, gp[2] + oy2 - py, gp[3] + oz2 - pz }
+                if fore > 0 and a > 0 then
+                    -- aiming a long gun: the support hand drops under the handguard / pump so the glove
+                    -- does not rise into the sight picture
+                    local dd = 9 * a
+                    lp = { lp[1] + bd[1] * dd - bf[1] * 2 * a, lp[2] + bd[2] * dd - bf[2] * 2 * a, lp[3] + bd[3] * dd - bf[3] * 2 * a }
+                end
             elseif fore > 0 then
                 local dn = 4 + 10 * a
                 lp = { gp[1] + bf[1] * fore + bd[1] * dn, gp[2] + bf[2] * fore + bd[2] * dn, gp[3] + bf[3] * fore + bd[3] * dn }
@@ -1744,7 +1750,11 @@ local function updateHands(dt, mx, my, moving)
         if target then
             if t.left then pL = lerp3(pL, target, k) else pR = lerp3(pR, target, k) end
         end
-        if e > 0.45 then S.touch = nil glovesCollide(false) end
+        if e > 0.45 then
+            S.touch = nil
+            glovesCollide(false)
+            if S.touchGlove then pcall(function() S.touchGlove:DisengageFIngertip(false) end) S.touchGlove = nil end
+        end
     end
     if pR then setCtrlRel(S.R, pR, qR) end
     if pL then setCtrlRel(S.L, pL, qL) end
@@ -2205,7 +2215,7 @@ menuItems = function(world, pc)
         add("< BACK", back)
         for i, sng in ipairs(RADIO.list) do
             local name = sng.title .. ((sng.artist ~= "") and ("  -  " .. sng.artist) or "")
-            add(((r and r.idx == i - 1) and "> " or "") .. name:upper():sub(1, 40), function() RADIO.play(i - 1) end,
+            add(((r and r.idx == i - 1) and "* " or "") .. name:upper():sub(1, 30), function() RADIO.play(i - 1) end,
                 function() return ((sng.len or ""):gsub("^00:", "")) end)
         end
     elseif M.page == "gameplay" then
@@ -2248,7 +2258,7 @@ menuDraw = function(L)
             setColor(e, sel and C_RED or (item.act and C_GREY or C_DIM))
             hudShow(e, true)
             local val = item.value and item.value() or ""
-            item.cycle = item.value and item.act and M.page ~= "controls" and val ~= ">" and not val:find("^%[")
+            item.cycle = item.value and item.act and M.page ~= "controls" and M.page ~= "songs" and val ~= ">" and not val:find("^%[")
             setText(v, val)
             setColor(v, sel and C_WHITE or C_GREY)
             hudShow(v, val ~= "")
@@ -2872,6 +2882,67 @@ local function diagShot()
 end
 -- Click to touch: the hand (left one while you hold a weapon) reaches to what is under the
 -- crosshair (up to 2.5 m) and back; its colliders press buttons, arrows, map pictures, door knobs.
+-- The basement boards' buttons (loadout arrows, round options) are trigger boxes that react when a VR
+-- finger overlaps them. A desktop "touch" hands the nearest such box its own BeginOverlap event, as if
+-- the glove's fingertip had touched it (and EndOverlap a moment later).
+S.boardFns = {}
+S.boardPress = function(pt, useLeft)
+    -- every trigger box near the touch point, nearest first
+    local cands = {}
+    local boxes
+    pcall(function() boxes = FindAllOf("BoxComponent") end)
+    for _, c in ipairs(boxes or {}) do
+        pcall(function()
+            local l = c:K2_GetComponentLocation()
+            local ext = c:GetScaledBoxExtent()
+            local d = math.sqrt((l.X - pt.X) ^ 2 + (l.Y - pt.Y) ^ 2 + (l.Z - pt.Z) ^ 2)
+            local r = math.max(ext.X, ext.Y, ext.Z)
+            -- the buttons' boxes float a little in front of the drawn arrows (where a VR finger comes from)
+            if d < math.max(r + 8, 30) and d < 150 then cands[#cands + 1] = { c = c, d = d } end
+        end)
+    end
+    table.sort(cands, function(x, y) return x.d < y.d end)
+    for _, cd in ipairs(cands) do
+        local best, bestActor = cd.c, nil
+        pcall(function() bestActor = best:GetOwner() end)
+        if valid(bestActor) and bestActor ~= nil and fullName(bestActor) ~= S.pawnName then
+            local cname = best:GetFName():ToString()
+            -- components renamed so far from their event that no prefix matches (loadout board back row)
+            cname = ({ backleftbutton = "Box2", backrightbutton = "Box5" })[cname] or cname
+            local cls = bestActor:GetClass()
+            local key = fullName(cls) .. "|" .. cname
+            local fns = S.boardFns[key]
+            if not fns then
+                fns = {}
+                -- the event is named after the component's original name, which may since have been renamed
+                -- ("Box1" -> component "Box1lbutton"): take the longest event name the component name starts with
+                local bestLen = 0
+                pcall(function()
+                    cls:ForEachFunction(function(f)
+                        local n = f:GetFName():ToString()
+                        local tok = n:match("^BndEvt__(.-)_K2Node_ComponentBoundEvent")
+                        if tok and cname:sub(1, #tok) == tok and #tok >= bestLen then
+                            if #tok > bestLen then fns = {} bestLen = #tok end
+                            if n:find("BeginOverlap") then fns.b = n elseif n:find("EndOverlap") then fns.e = n end
+                        end
+                    end)
+                end)
+                S.boardFns[key] = fns
+            end
+            if fns.b then
+                local glove = S.pawn[useLeft and "GraspingHandLeft" or "GraspingHandRight"]
+                local tip
+                pcall(function() tip = glove.Fingertip end)
+                local ok, err = pcall(function() bestActor[fns.b](bestActor, best, glove, tip, 0, false, {}) end)
+                log(string.format("touch: pressed %s.%s (%.0f cm) %s", shortName(bestActor), cname, cd.d, ok and "ok" or tostring(err)))
+                if fns.e then S.boardEnd = { a = bestActor, c = best, fn = fns.e, glove = glove, tip = tip, at = S.now + 0.25 } end
+                return ok
+            end
+        end
+    end
+    log(string.format("touch: no button near the touch point (%d trigger boxes within reach)", #cands))
+    return false
+end
 local function touchUnderCrosshair(world, useLeft)
     if S.touch then return end   -- one reach at a time
     local cl, q = viewBasis()
@@ -2891,6 +2962,14 @@ local function touchUnderCrosshair(world, useLeft)
     pt = v3(pt.X + fx * 4, pt.Y + fy * 4, pt.Z + fz * 4)
     S.touch = { pt = pt, t0 = S.now, left = useLeft }
     glovesCollide(true)
+    pcall(function()
+        local glove = S.pawn[useLeft and "GraspingHandLeft" or "GraspingHandRight"]
+        glove:SetOverlaps(true)
+        glove:EngageFingertip(false)
+        S.touchGlove = glove
+    end)
+    local okB, eB = pcall(S.boardPress, pt, useLeft)
+    if not okB then log("touch: board press error " .. tostring(eB)) end
     log(string.format("touch (%s hand, %s)", useLeft and "left" or "right", (ok and res) and "hit" or "air"))
 end
 
@@ -2933,6 +3012,7 @@ local function forgetWorld()
     S.menu = nil
     S.grenades, S.spawned, S.inv = {}, {}, {}
     S.lastDroppedActor, S.lastDropped = nil, nil
+    S.boardEnd, S.touchGlove = nil, nil
     S.vmGun, S.vm, S.aimGun, S.recGun, S.recAmmo = nil, nil, nil, nil, nil
     S.pawn, S.pawnName, S.cam, S.L, S.R, S.Lactor, S.Ractor, S.cm = nil, nil, nil, nil, nil, nil, nil, nil
     S.sel, S.fire.held, S.fire.gun, S.fire.pressedAt = nil, false, nil, nil
@@ -3142,7 +3222,7 @@ local function frame()
             if rawPressed("LeftMouseButton") and row ~= nil then
                 -- click: on a value row, the left arrow lowers it and the right arrow raises it
                 local cyc = false
-                if it and it.act and it.value and S.menu.page ~= "controls" then
+                if it and it.act and it.value and S.menu.page ~= "controls" and S.menu.page ~= "songs" then
                     local v = it.value() or ""
                     cyc = v ~= ">" and not v:find("^%[")
                 end
@@ -3241,6 +3321,11 @@ local function frame()
             if not okT then log("touch error: " .. tostring(eT)) end
         end
     end
+    if S.boardEnd and now >= S.boardEnd.at then
+        local be = S.boardEnd
+        S.boardEnd = nil
+        pcall(function() be.a[be.fn](be.a, be.c, be.glove, be.tip, 0) end)
+    end
     if S.meleeAt and now >= S.meleeAt then S.meleeAt = nil pcall(meleeHit, world) end
     if S.meleeCheck and now >= S.meleeCheck.at then pcall(meleeFollowUp) end
     if S.calibPending then
@@ -3301,7 +3386,7 @@ local function frame()
     local wheel = inMenu and 0 or axis(pc, "MouseWheelAxis")
     if (CFG.AimToggle == 1 and pressed(B.Aim)) or pressed(B.AimToggle) then S.aimLatch = not S.aimLatch end
     if CFG.AimToggle ~= 1 and pressed(B.Aim) then S.aimLatch = false end
-    local aiming = (S.aimLatch == true or (CFG.AimToggle ~= 1 and down(B.Aim))) and not S.reloadAnim
+    local aiming = (S.aimLatch == true or (CFG.AimToggle ~= 1 and down(B.Aim))) and not S.reloadAnim and heldActor(S.R) ~= nil
     local sens = CFG.MouseSensitivity * (S.fovNow / CFG.FOV)   -- slower turning when zoomed in
     if down("LeftAlt") or down("X") then
         local h = down("LeftAlt") and S.free.R or S.free.L
@@ -3429,4 +3514,4 @@ LoopInGameThreadAfterFrames(1, function()
     end
     return false
 end)
-log("BTDesktop 1.3.0 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")
+log("BTDesktop 1.3.1 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")
