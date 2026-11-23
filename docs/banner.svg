@@ -59,7 +59,7 @@
   <g transform="translate(1128 34)">
     <rect width="120" height="26" rx="3" fill="none" stroke="#ff1f3d" stroke-opacity="0.8"/>
     <circle cx="16" cy="13" r="4" fill="#ff1f3d"><animate attributeName="opacity" values="1;0.2;1" dur="1.6s" repeatCount="indefinite"/></circle>
-    <text x="28" y="18" font-family="Consolas, monospace" font-size="13" letter-spacing="2" fill="#ffffff">BUILD 1.0.0</text>
+    <text x="28" y="18" font-family="Consolas, monospace" font-size="13" letter-spacing="2" fill="#ffffff">BUILD 1.1.0</text>
   </g>
 
   <!-- bottom data strip -->

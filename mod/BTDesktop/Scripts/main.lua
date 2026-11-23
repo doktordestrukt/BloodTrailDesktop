@@ -2,7 +2,7 @@
 -- https://github.com/doktordestrukt/BloodTrailDesktop
 -- Drives the VR pawn, its camera and both grip motion controllers from the keyboard and mouse;
 -- weapons go through the game's own grip system, so the game treats them as held.
--- Keys: see README.md in this folder. Settings: BTDesktop.ini in this folder.
+-- Keys: see README.md in this folder. Settings: BTDesktop.ini in this folder (or Esc in game).
 --
 -- Rules learned the hard way in this game:
 --  * one persistent LoopInGameThreadAfterFrames loop, never a new ExecuteInGameThread closure per frame
@@ -46,18 +46,82 @@ local CFG = {
     GrenadeSpeed = 1500,      -- cm/s throw speed
     GrenadeFuse = 3.0,        -- seconds until a thrown pipe bomb is forced to explode
     Aspect = 1.7778,          -- screen width / height (HUD layout)
+    ZeroDistance = 2500,      -- cm: the weapon is zeroed at this distance (hip and sights), so it never swings
+                              -- around with what is under the crosshair
+    ShowGloves = 1,           -- 1 = show the game's own gloves on both hands (pinned to the hands, no physics)
+    Crosshair = 1,            -- 1 = white crosshair
+    ScreenPercentage = 100,   -- resolution scale in % (Esc > Graphics)
 }
+
+-- key bindings (Esc > Controls; saved as Key_<Action>= in BTDesktop.ini). UE key names.
+local ACTIONS = {
+    { "Forward", "W", "MOVE FORWARD" }, { "Back", "S", "MOVE BACK" }, { "Left", "A", "STRAFE LEFT" },
+    { "Right", "D", "STRAFE RIGHT" }, { "Sprint", "LeftShift", "SPRINT" }, { "Crouch", "LeftControl", "CROUCH" },
+    { "Jump", "SpaceBar", "JUMP" }, { "Fire", "LeftMouseButton", "FIRE / MELEE / USE" },
+    { "Aim", "RightMouseButton", "AIM (HOLD)" }, { "AimToggle", "Z", "AIM (TOGGLE)" },
+    { "Reload", "R", "RELOAD" }, { "FireMode", "B", "FIRE MODE (AUTO / SEMI / BURST)" },
+    { "Interact", "E", "INTERACT / PRESS" }, { "Holster", "Q", "HOLSTER WEAPON" }, { "Grab", "G", "GRAB / DROP" },
+    { "Grenade", "T", "THROW PIPE BOMB" }, { "Crack", "H", "CRACK (HEAL)" }, { "NightVision", "N", "NIGHT VISION" },
+    { "Flashlight", "F", "FLASHLIGHT" }, { "ResetHands", "V", "RESET HANDS" },
+    { "Slot1", "One", "WEAPON SLOT 1" }, { "Slot2", "Two", "WEAPON SLOT 2" }, { "Slot3", "Three", "WEAPON SLOT 3" },
+    { "Slot4", "Four", "WEAPON SLOT 4" }, { "Slot5", "Five", "WEAPON SLOT 5" }, { "Slot6", "Six", "WEAPON SLOT 6" },
+    { "Slot7", "Seven", "WEAPON SLOT 7" }, { "Slot8", "Eight", "WEAPON SLOT 8" }, { "Slot9", "Nine", "WEAPON SLOT 9" },
+    { "Slot10", "Zero", "WEAPON SLOT 10" }, { "Slot11", "Hyphen", "WEAPON SLOT 11" }, { "Slot12", "Equals", "WEAPON SLOT 12" },
+}
+local B = {}
+for _, a in ipairs(ACTIONS) do B[a[1]] = a[2] end
+local KEYLABEL = { One = "1", Two = "2", Three = "3", Four = "4", Five = "5", Six = "6", Seven = "7", Eight = "8",
+    Nine = "9", Zero = "0", Hyphen = "-", Equals = "=", LeftMouseButton = "LMB", RightMouseButton = "RMB",
+    MiddleMouseButton = "MMB", ThumbMouseButton = "MOUSE 4", ThumbMouseButton2 = "MOUSE 5", LeftShift = "SHIFT",
+    RightShift = "R-SHIFT", LeftControl = "CTRL", RightControl = "R-CTRL", LeftAlt = "ALT", RightAlt = "R-ALT",
+    SpaceBar = "SPACE", CapsLock = "CAPS", BackSpace = "BKSP", LeftBracket = "[", RightBracket = "]",
+    Semicolon = ";", Apostrophe = "'", Comma = ",", Period = ".", Slash = "/", Backslash = "\\", Tilde = "`",
+    PageUp = "PG UP", PageDown = "PG DN", Enter = "ENTER", Tab = "TAB" }
+local function keyLabel(k) if not k or k == "" then return "-" end return KEYLABEL[k] or k:upper() end
+local function slotKey(i) return keyLabel(B["Slot" .. i]) end
 local function loadConfig()
     local f = io.open(modDir .. "\\BTDesktop.ini", "r")
     if not f then return end
     for line in f:lines() do
         line = line:gsub(";.*$", "")
         local k, v = line:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
-        if k and CFG[k] ~= nil then CFG[k] = tonumber(v) or v end
+        if k and CFG[k] ~= nil then CFG[k] = tonumber(v) or v
+        elseif k and k:sub(1, 4) == "Key_" and B[k:sub(5)] ~= nil then B[k:sub(5)] = v end
     end
     f:close()
 end
 loadConfig()
+-- write the current settings back into BTDesktop.ini (keeps comments and unknown lines)
+local SAVE_KEYS = { "MouseSensitivity", "AimToggle", "FOV", "AimFOV", "ViewBob", "WalkSpeed", "SprintMultiplier",
+    "EyeHeight", "Crosshair", "ShowGloves", "ScreenPercentage", "ZeroDistance" }
+local function saveConfig()
+    local path = modDir .. "\\BTDesktop.ini"
+    local lines = {}
+    local f = io.open(path, "r")
+    if f then for line in f:lines() do lines[#lines + 1] = line end f:close() end
+    local function val(k)
+        if CFG[k] ~= nil then return tostring(CFG[k]) end
+        if k:sub(1, 4) == "Key_" and B[k:sub(5)] ~= nil then return B[k:sub(5)] end
+    end
+    local seen, hasKeys = {}, false
+    for i, line in ipairs(lines) do
+        if line:match("^%s*%[Keys%]") then hasKeys = true end
+        local k, rest = line:match("^%s*([%w_]+)%s*=[^;]*(.*)$")
+        if k and val(k) and not seen[k] then
+            lines[i] = k .. "=" .. val(k) .. (rest ~= "" and ("  " .. rest) or "")
+            seen[k] = true
+        end
+    end
+    for _, k in ipairs(SAVE_KEYS) do if not seen[k] then lines[#lines + 1] = k .. "=" .. val(k) seen[k] = true end end
+    local missing = {}
+    for _, a in ipairs(ACTIONS) do if not seen["Key_" .. a[1]] then missing[#missing + 1] = "Key_" .. a[1] .. "=" .. B[a[1]] end end
+    if #missing > 0 then
+        if not hasKeys then lines[#lines + 1] = "[Keys]" end
+        for _, l in ipairs(missing) do lines[#lines + 1] = l end
+    end
+    local w = io.open(path, "w")
+    if w then w:write(table.concat(lines, "\n") .. "\n") w:close() end
+end
 -- Git Bash turns "/Game/..." arguments into "C:/Program Files/Git/Game/...": keep the /Game part
 if type(CFG.StartMap) == "string" then CFG.StartMap = CFG.StartMap:match("(/Game/.*)$") or CFG.StartMap end
 
@@ -225,10 +289,26 @@ local function fkey(n)
 end
 local virt, virtAxis = {}, {}       -- keys / axes injected by the self test
 local keyNow, keyPrev = {}, {}
-local WATCH = { "W", "A", "S", "D", "LeftShift", "LeftControl", "C", "SpaceBar", "LeftMouseButton", "RightMouseButton",
-    "LeftAlt", "X", "V", "Zero", "Q", "R", "G", "E", "F", "N", "T", "MiddleMouseButton", "Escape", "Up", "Down", "Left", "Right", "Enter",
-    "B", "H", "Z", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "J" }
-for _, d in ipairs(DIGITS) do WATCH[#WATCH + 1] = d end
+local WATCH = {}
+local FIXED_KEYS = { "W", "A", "S", "D", "LeftAlt", "X", "MiddleMouseButton", "Escape", "Up", "Down", "Left", "Right",
+    "Enter", "SpaceBar", "LeftMouseButton", "RightMouseButton", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "J" }
+local function rebuildWatch()
+    local seen = {}
+    WATCH = {}
+    for _, k in ipairs(FIXED_KEYS) do if not seen[k] then seen[k] = true WATCH[#WATCH + 1] = k end end
+    for _, a in ipairs(ACTIONS) do local k = B[a[1]] if k and k ~= "" and not seen[k] then seen[k] = true WATCH[#WATCH + 1] = k end end
+end
+rebuildWatch()
+-- every key that can be bound (Esc > Controls)
+local ALLKEYS = { "LeftMouseButton", "RightMouseButton", "MiddleMouseButton", "ThumbMouseButton", "ThumbMouseButton2",
+    "LeftShift", "RightShift", "LeftControl", "RightControl", "LeftAlt", "RightAlt", "SpaceBar", "Tab", "CapsLock",
+    "Enter", "BackSpace", "Up", "Down", "Left", "Right", "Insert", "Delete", "Home", "End", "PageUp", "PageDown",
+    "Hyphen", "Equals", "LeftBracket", "RightBracket", "Semicolon", "Apostrophe", "Comma", "Period", "Slash",
+    "Backslash", "Tilde", "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F12",
+    "NumPadZero", "NumPadOne", "NumPadTwo", "NumPadThree", "NumPadFour", "NumPadFive", "NumPadSix", "NumPadSeven",
+    "NumPadEight", "NumPadNine" }
+for c in ("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):gmatch(".") do ALLKEYS[#ALLKEYS + 1] = c end
 
 local function readKeys(pc)
     for _, n in ipairs(WATCH) do
@@ -359,6 +439,10 @@ local function setupPawn(pawn, pc, world)
     if CFG.BlockGameKeys == 1 then setGameKeys(pc, false) end
     captureMouse(pc, true)
     S.look = true
+    S.spawnT = S.now
+    if CFG.ScreenPercentage ~= 100 then
+        pcall(function() KSL():ExecuteConsoleCommand(world, "r.ScreenPercentage " .. tostring(CFG.ScreenPercentage), pc) end)
+    end
     log(string.format("pawn %s  camera=%s  hands=%s/%s  movement=%s  walk speed=%s", S.pawnName,
         S.cam and shortName(S.cam) or "NONE", S.L and "grip-L" or (S.Lactor and "actor-L" or "NONE"),
         S.R and "grip-R" or (S.Ractor and "actor-R" or "NONE"), S.cm and "CharacterMovement" or "none (direct)",
@@ -400,8 +484,8 @@ local function makeRigid(obj)
     if CFG.RigidGrip ~= 1 then return end
     local ok, err = pcall(function()
         local g = obj.VRGripInterfaceSettings
-        g.SlotDefaultGripType = 7       -- AttachmentGrip
-        g.FreeDefaultGripType = 7
+        g.SlotDefaultGripType = 8       -- AttachmentGrip (EGripCollisionType: 7 is ManipulationGripWithWristTwist, a physics grip)
+        g.FreeDefaultGripType = 8
         g.ConstraintBreakDistance = 0   -- never break
         g.LateUpdateSetting = 4         -- late updates off
     end)
@@ -426,8 +510,8 @@ local function rigidAfterGrip(ctrl)
     if not info then return end
     local t = -1
     pcall(function() t = info.GripCollisionType end)
-    if t ~= 7 then
-        local ok, err = pcall(function() ctrl:SetGripCollisionType(info, {}, 7) end)
+    if t ~= 8 then
+        local ok, err = pcall(function() ctrl:SetGripCollisionType(info, {}, 8) end)
         pcall(function() t = gripInfo(ctrl).GripCollisionType end)
         log("grip collision type -> " .. tostring(t) .. (ok and "" or (" (" .. tostring(err) .. ")")))
     end
@@ -574,7 +658,7 @@ local function equip(slot)
         -- the mod fight over it until it crashed. This slot just readies a throw (left click).
         if heldObject(S.R) then dropRight("holster") end
         S.sel = slot
-        S.popupMsg = string.format("[ %d ]  PIPE BOMB - LEFT CLICK TO THROW", slot)
+        S.popupMsg = string.format("[ %s ]  PIPE BOMB - %s TO THROW", slotKey(slot), keyLabel(B.Fire))
         return true
     end
     if entry.ref then
@@ -586,7 +670,7 @@ local function equip(slot)
         if ok then
             S.sel = slot
             S.heldName, S.regrips, S.heldActorRef, S.heldFromHolster = fullName(a), 0, a, true
-            S.popupMsg = string.format("[ %d ]  %s", slot, entry.name:upper())
+            S.popupMsg = string.format("[ %s ]  %s", slotKey(slot), entry.name:upper())
             log(string.format("took %s out of the %s holster via %s", shortName(a), entry.label, how))
         else
             log("equip " .. slot .. " " .. entry.name .. ": could not grip (" .. how .. ")")
@@ -616,7 +700,7 @@ local function equip(slot)
         if fresh then reload(a) end
         S.sel = slot
         S.heldName, S.regrips = fullName(a), 0
-        S.popupMsg = string.format("[ %d ]  %s", slot, w[1]:upper())
+        S.popupMsg = string.format("[ %s ]  %s", slotKey(slot), w[1]:upper())
         S.heldActorRef = a
         log(string.format("equipped %d %s (%s) via %s%s", slot, w[1], shortName(a), how, fresh and ", new" or ", from inventory"))
     else
@@ -642,7 +726,7 @@ local function toggleFireMode()
     end)
     local now
     pcall(function() now = num(g.Firingmode) end)
-    S.popupMsg = ({ [0] = "FULL AUTO", [1] = "SEMI AUTO", [2] = "BURST" })[now] or tostring(now)
+    S.popupMsg = (({ [0] = "FULL AUTO", [1] = "SEMI AUTO", [2] = "BURST" })[now] or tostring(now)) .. "   [" .. keyLabel(B.FireMode) .. "]"
     log("fire mode " .. tostring(m) .. " -> " .. tostring(now))
 end
 
@@ -960,7 +1044,7 @@ local function hudDestroy()
 end
 
 local MENU_ROWS = 13
-local SLOT_W, SLOT_H, SLOT_GAP = 96, 54, 6
+local SLOT_W, SLOT_H, SLOT_GAP = 104, 58, 6
 local function hudBuild(world, pc)
     hudDestroy()
     local widget, used
@@ -984,26 +1068,26 @@ local function hudBuild(world, pc)
         H.slots[i] = {
             bg = uiRect(H, 0.5, 1, 0, 1, x, -22, SLOT_W, SLOT_H, C_PANEL),
             bar = uiRect(H, 0.5, 1, 0, 1, x, -22 - SLOT_H + 3, SLOT_W, 3, C_RED),
-            num = uiText(H, 0.5, 1, 0, 0, x + 7, -22 - SLOT_H + 5, 12, C_DIM, true),
-            name = uiText(H, 0.5, 1, 0.5, 1, x + SLOT_W / 2, -29, 12, C_GREY, true),
+            num = uiText(H, 0.5, 1, 0, 0, x + 8, -22 - SLOT_H + 7, 11, C_DIM, true),
+            name = uiText(H, 0.5, 1, 0.5, 1, x + SLOT_W / 2, -30, 13, C_GREY, true),
         }
-        setText(H.slots[i].num, tostring(i) .. (w.tag and ("  " .. w.tag) or ""))
+        H.slots[i].tag = w.tag
         setText(H.slots[i].name, w.name:upper())
     end
     -- ammo (bottom right)
-    H.ammoBg = uiRect(H, 1, 1, 1, 1, -22, -22, 200, 78, C_PANEL)
-    H.ammoEdge = uiRect(H, 1, 1, 1, 1, -22 - 196, -22, 4, 78, C_RED)
-    H.gunName = uiText(H, 1, 1, 1, 0, -32, -22 - 72, 12, C_WHITE, true)
-    H.mode = uiText(H, 1, 1, 0, 0, -22 - 184, -22 - 72, 11, C_RED, true)
-    H.ammo = uiText(H, 1, 1, 1, 1, -82, -26, 30, C_RED, true)
-    H.ammoMax = uiText(H, 1, 1, 0, 1, -78, -32, 14, C_GREY, true)
-    H.bullets = uiText(H, 1, 1, 1, 0, -32, -22 - 54, 9, C_RED, true)
+    H.ammoBg = uiRect(H, 1, 1, 1, 1, -22, -22, 240, 104, C_PANEL)
+    H.ammoEdge = uiRect(H, 1, 1, 1, 1, -22 - 236, -22, 4, 104, C_RED)
+    H.gunName = uiText(H, 1, 1, 1, 0, -36, -22 - 96, 13, C_WHITE, true)
+    H.mode = uiText(H, 1, 1, 0, 0, -22 - 220, -22 - 96, 12, C_RED, true)
+    H.bullets = uiText(H, 1, 1, 1, 0, -36, -22 - 70, 9, C_RED, true)
+    H.ammo = uiText(H, 1, 1, 1, 1, -100, -28, 32, C_RED, true)
+    H.ammoMax = uiText(H, 1, 1, 0, 1, -94, -36, 15, C_GREY, true)
     -- health (bottom left)
     H.hpBg = uiRect(H, 0, 1, 0, 1, 22, -22, 270, 64, C_PANEL)
     H.hpEdge = uiRect(H, 0, 1, 0, 1, 22, -22, 4, 64, C_RED)
-    H.hpNum = uiText(H, 0, 1, 0, 1, 40, -46, 22, C_RED, true)
-    H.hpBarBg = uiRect(H, 0, 1, 0, 1, 40, -34, 230, 7, { R = 0.12, G = 0.02, B = 0.03, A = 0.9 })
-    H.hpBar = uiRect(H, 0, 1, 0, 1, 40, -34, 230, 7, C_RED)
+    H.hpNum = uiText(H, 0, 1, 0, 1, 40, -50, 22, C_RED, true)
+    H.hpBarBg = uiRect(H, 0, 1, 0, 1, 40, -34, 230, 6, { R = 0.12, G = 0.02, B = 0.03, A = 0.9 })
+    H.hpBar = uiRect(H, 0, 1, 0, 1, 40, -34, 230, 6, C_RED)
     -- white crosshair: four short lines around the centre
     H.cross = {
         uiRect(H, 0.5, 0.5, 1, 0.5, -4, 0, 9, 2, C_WHITE),
@@ -1018,25 +1102,27 @@ local function hudBuild(world, pc)
     -- escape menu (hidden until Esc)
     H.menu = { rows = {} }
     H.menu.shade = uiFill(H, C_SHADE)
-    H.menu.panel = uiRect(H, 0.5, 0.5, 0.5, 0.5, 0, 0, 520, 660, C_PANEL)
-    H.menu.edge = uiRect(H, 0.5, 0.5, 0.5, 0.5, -258, 0, 4, 660, C_RED)
+    H.menu.panel = uiRect(H, 0.5, 0.5, 0.5, 0.5, 0, 0, 640, 680, C_PANEL)
+    H.menu.edge = uiRect(H, 0.5, 0.5, 0.5, 0.5, -318, 0, 4, 680, C_RED)
     H.menu.title = uiText(H, 0.5, 0.5, 0.5, 0, 0, -310, 34, C_RED, true)
     H.menu.sub = uiText(H, 0.5, 0.5, 0.5, 0, 0, -262, 13, C_GREY, true)
+    H.menu.vals = {}
     for i = 1, MENU_ROWS do
-        H.menu.rows[i] = uiText(H, 0.5, 0.5, 0.5, 0, 0, -220 + (i - 1) * 38, 18, C_GREY, true)
+        H.menu.rows[i] = uiText(H, 0.5, 0.5, 0, 0, -280, -220 + (i - 1) * 38, 17, C_GREY, true)
+        H.menu.vals[i] = uiText(H, 0.5, 0.5, 1, 0, 280, -220 + (i - 1) * 38, 17, C_GREY, true)
     end
-    H.menu.hint = uiText(H, 0.5, 0.5, 0.5, 0, 0, 292, 11, C_DIM, true)
+    H.menu.hint = uiText(H, 0.5, 0.5, 0.5, 0, 0, 300, 11, C_DIM, true)
     setText(H.menu.title, "BTDESKTOP")
-    setText(H.menu.hint, "W/S OR WHEEL: CHOOSE    ENTER / SPACE / CLICK: SELECT    ESC: BACK")
+    setText(H.menu.hint, "W/S: CHOOSE   A/D OR LMB/RMB: CHANGE   ENTER: SELECT   ESC: BACK")
     local function showMenu(on)
         for k, e in pairs(H.menu) do
-            if k == "rows" then for _, r in ipairs(e) do hudShow(r, on) end else hudShow(e, on) end
+            if k == "rows" or k == "vals" then for _, r in ipairs(e) do hudShow(r, on) end else hudShow(e, on) end
         end
     end
     H.showMenu = showMenu
     pcall(function() widget:AddToViewport(20) end)
     pcall(function() widget:SetVisibility(3) end)
-    showMenu(false)
+    showMenu(S.menu ~= nil)
     H.popupUntil = 0
     HUD = H
     log(string.format("2D HUD built (%d elements, host %s)", #H.all, used:match("([^.]+)$")))
@@ -1084,6 +1170,7 @@ local function hudUpdate(world, pc)
         hudShow(s.bar, sel)
         setColor(s.num, sel and C_RED or C_DIM)
         setColor(s.name, sel and C_WHITE or C_GREY)
+        setText(s.num, slotKey(i) .. (s.tag and ("  " .. s.tag) or ""))
     end
     local gun = heldActor(S.R)
     local cur, max, ch
@@ -1098,7 +1185,7 @@ local function hudUpdate(world, pc)
             setColor(H.ammo, (cur + (ch or 0) == 0) and C_DIM or C_RED)
             local m
             pcall(function() m = num(gun.Firingmode) end)
-            setText(H.mode, m and (FIRE_MODE_NAMES[m] or tostring(m)) or "")
+            setText(H.mode, m and ((FIRE_MODE_NAMES[m] or tostring(m)) .. "  [" .. keyLabel(B.FireMode) .. "]") or "")
         else
             setText(H.ammo, "--") setText(H.ammoMax, "MELEE") setText(H.bullets, "") setText(H.mode, "")
         end
@@ -1109,7 +1196,7 @@ local function hudUpdate(world, pc)
         setText(H.hpNum, string.format("+ %d", math.floor(hp + 0.5)))
         setWidth(H.hpBar, math.floor(230 * clamp(hp / hpMax, 0, 1) + 0.5))
     end
-    for _, c in ipairs(H.cross) do hudShow(c, not S.menu) end
+    for _, c in ipairs(H.cross) do hudShow(c, not S.menu and CFG.Crosshair == 1) end
     hudShow(H.popup, S.now < H.popupUntil)
     local f = {}
     if S.god then f[#f + 1] = "GOD" end
@@ -1217,8 +1304,12 @@ local function handsSetup()
             if not valid(h) or not side[2] then return end
             local root = h:K2_GetRootComponent()
             pcall(function() root:SetSimulatePhysics(false) end)
-            pcall(function() h:K2_AttachToComponent(side[2], FName("None"), 2, 2, 1, false) end)   -- snap to the controller
-            pcall(function() h:SetActorHiddenInGame(true) end)
+            local par
+            pcall(function() par = root:GetAttachParent() end)
+            if not (valid(par) and fullName(par) == fullName(side[2])) then
+                pcall(function() h:K2_AttachToComponent(side[2], FName("None"), 2, 2, 1, false) end)   -- snap to the controller
+            end
+            pcall(function() h:SetActorHiddenInGame(CFG.ShowGloves ~= 1) end)
             pcall(function() h:SetActorEnableCollision(S.touch ~= nil) end)
         end)
     end
@@ -1261,6 +1352,31 @@ local function worldToParent(w)
 end
 
 local function lerp3(a, b, t) return { a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t } end
+-- rotation of ang degrees about the unit axis a
+local function qaxis(ax, ay, az, ang)
+    local h = ang * DEG / 2
+    local sn = math.sin(h)
+    return { ax * sn, ay * sn, az * sn, math.cos(h) }
+end
+-- turn q about its own muzzle axis (fw = muzzle direction in camera space) so the weapon's top points up
+local function levelGun(q, fw)
+    local ux, uy, uz = qrot(q, 0, 0, 1)
+    local fx, fy, fz = fw[1], fw[2], fw[3]
+    -- wanted up: camera up with the muzzle direction removed
+    local d = fz
+    local wx, wy, wz = -d * fx, -d * fy, 1 - d * fz
+    local dn = math.sqrt(wx * wx + wy * wy + wz * wz)
+    local du = ux * fx + uy * fy + uz * fz
+    ux, uy, uz = ux - du * fx, uy - du * fy, uz - du * fz
+    local un = math.sqrt(ux * ux + uy * uy + uz * uz)
+    if dn < 1e-4 or un < 1e-4 then return q end
+    wx, wy, wz, ux, uy, uz = wx / dn, wy / dn, wz / dn, ux / un, uy / un, uz / un
+    local cs = ux * wx + uy * wy + uz * wz
+    local cx, cy, cz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+    local sn = cx * fx + cy * fy + cz * fz
+    local ang = math.atan(sn, cs) / DEG
+    return qnormalize(qmul(qaxis(fx, fy, fz, ang), q))
+end
 local function qlookLocal(from, to)
     local tx, ty, tz = to[1] - from[1], to[2] - from[2], to[3] - from[3]
     return rotToQuat(math.atan(tz, math.sqrt(tx * tx + ty * ty)) * RAD, math.atan(ty, tx) * RAD, 0)
@@ -1268,7 +1384,7 @@ end
 
 local function updateHands(dt, mx, my, moving)
     local a = S.ads
-    local sprinting = moving and down("LeftShift") and a < 0.1 and not down("LeftMouseButton")
+    local sprinting = moving and down(B.Sprint) and a < 0.1 and not down(B.Fire)
     S.sprintK = (S.sprintK or 0) + ((sprinting and 1 or 0) - (S.sprintK or 0)) * math.min(1, dt * 8)
     -- weapon bob: the gun trails the camera bob a little (less when aiming)
     local bt = S.camBobT or 0
@@ -1287,7 +1403,7 @@ local function updateHands(dt, mx, my, moving)
     if gun and CFG.RigidGrip == 1 then
         local gname = fullName(gun)
         if S.vmGun ~= gname then
-            S.vmGun, S.vm, S.gunOffP, S.gunOffQ, S.gunStable = gname, nil, nil, nil, 0
+            S.vmGun, S.vm, S.gunOffP, S.gunOffQ, S.gunStable, S.gunLock = gname, nil, nil, nil, 0, nil
             local ok, err = pcall(function()
                 local root = gun:K2_GetRootComponent()
                 pcall(function() root:SetSimulatePhysics(false) end)
@@ -1319,7 +1435,7 @@ local function updateHands(dt, mx, my, moving)
             local vm = S.vm
             local w = slotW()
             local gq, gp   -- weapon pose in CAMERA space
-            local hip = { 34 + gbx, 15 + gby, -18 + gbz }
+            local hip = { 31 + gbx, 10 + gby, -13 + gbz }
             if S.jab > 0 then
                 S.jab = math.max(0, S.jab - dt)
                 local j = math.sin((1 - S.jab / 0.3) * math.pi)
@@ -1331,7 +1447,8 @@ local function updateHands(dt, mx, my, moving)
             else
                 -- the muzzle points at the spot under the crosshair (camera trace, smoothed), so rounds
                 -- land on the crosshair; aiming: sights (SightHeight above the bore) on the crosshair
-                local d = S.aimDist or 2000
+                -- zeroed at a fixed distance: the weapon never swings with what is under the crosshair
+                local d = CFG.ZeroDistance
                 local aimPt = { d, 0, 0 }
                 local sightH, sightX = (w and w[5]) or 3, (w and w[6]) or 0
                 local m = { CFG.AimGunDistance + vm.len, sightX, -sightH }
@@ -1341,6 +1458,12 @@ local function updateHands(dt, mx, my, moving)
                     gqHip = qmul(qlookLocal({ hip[1] + mx_, hip[2] + my_, hip[3] + mz_ }, aimPt), qconj(vm.rot))
                 end
                 local gqAds = qmul(qlookLocal(m, aimPt), qconj(vm.rot))
+                -- level both poses: the weapon's top points up (no cant / slant)
+                do
+                    local function fw(qq) local x, y, z = qrot(qmul(qq, vm.rot), 1, 0, 0) return { x, y, z } end
+                    gqHip = levelGun(gqHip, fw(gqHip))
+                    gqAds = levelGun(gqAds, fw(gqAds))
+                end
                 gq = (a > 0.001) and qnormalize(qmul(gqHip, qpow(qmul(qconj(gqHip), gqAds), a))) or gqHip
                 local ox, oy, oz = qrot(gqAds, vm.pos[1], vm.pos[2], vm.pos[3])
                 local pAds = { m[1] - ox, m[2] - oy, m[3] - oz }
@@ -1366,12 +1489,28 @@ local function updateHands(dt, mx, my, moving)
                 local ic = qconj(ctq)
                 local np = { qrot(ic, gt.Translation.X - ct.Translation.X, gt.Translation.Y - ct.Translation.Y, gt.Translation.Z - ct.Translation.Z) }
                 local nq = qmul(ic, { gt.Rotation.X, gt.Rotation.Y, gt.Rotation.Z, gt.Rotation.W })
+                if S.gunLock then
+                    -- locked: keep using it (re-measuring every frame let one frame of lag shake the gun).
+                    -- Re-lock only if the game really changed the grip (big difference for a long time while
+                    -- the view is still)
+                    local L = S.gunLock
+                    local dl = math.abs(np[1] - L.p[1]) + math.abs(np[2] - L.p[2]) + math.abs(np[3] - L.p[3])
+                    if dl > 4 and S.viewStill then S.gunDrift = (S.gunDrift or 0) + 1 else S.gunDrift = 0 end
+                    if S.gunDrift > 20 then
+                        S.gunLock, S.gunStable, S.gunDrift = nil, 0, 0
+                        local par = "-"
+                        pcall(function() par = fullName(root:GetAttachParent()):match("([^.:]+)$") end)
+                        log(string.format("grip offset changed by %.1f cm (parent %s, offset %.1f %.1f %.1f) - measuring again", dl, par, np[1], np[2], np[3]))
+                    end
+                    if S.gunLock then tp, tq = L.p, L.q return end
+                end
                 local d = S.gunOffP and (math.abs(np[1] - S.gunOffP[1]) + math.abs(np[2] - S.gunOffP[2]) + math.abs(np[3] - S.gunOffP[3])) or 99
-                S.gunStable = (d < 0.5) and math.min((S.gunStable or 0) + 1, 30) or 0
+                S.gunStable = (d < 0.3) and math.min((S.gunStable or 0) + 1, 30) or 0
                 tp, tq = np, nq
                 S.gunOffP, S.gunOffQ = np, nq
+                if S.gunStable >= 8 then S.gunLock = { p = np, q = nq } end
             end)
-            if (S.gunStable or 0) < 5 then
+            if not S.gunLock and (S.gunStable or 0) < 5 then
                 -- not (yet) riding on the controller: put the weapon where it belongs directly
                 pcall(function()
                     local cl, q = viewBasis()
@@ -1410,10 +1549,10 @@ local function updateHands(dt, mx, my, moving)
             end
         end
         showHandMesh("HandMesh-Right", false)   -- the weapon brings its own gripping hand
-        showHandMesh("HandMesh-Left", true)
+        showHandMesh("HandMesh-Left", CFG.ShowGloves ~= 1)
     else
-        showHandMesh("HandMesh-Right", true)
-        showHandMesh("HandMesh-Left", true)
+        showHandMesh("HandMesh-Right", CFG.ShowGloves ~= 1)
+        showHandMesh("HandMesh-Left", CFG.ShowGloves ~= 1)
         local wR, wL = S.free.R, S.free.L
         if S.demo then
             local t = S.now
@@ -1568,9 +1707,6 @@ local MAPS = {
     { "Slum Arena", "/Game/Maps/Arena/Map_SlumArena" },
 }
 for i = 1, 9 do MAPS[#MAPS + 1] = { "Raid " .. i, "/Game/Maps/Raid/Levels/V3/Map_Raid_lvl" .. i } end
-local MENU_ITEMS = { { "RESUME" }, { "RESTART MAP" } }
-for _, m in ipairs(MAPS) do MENU_ITEMS[#MENU_ITEMS + 1] = { m[1]:upper(), m[2] } end
-MENU_ITEMS[#MENU_ITEMS + 1] = { "QUIT GAME" }
 local function menuCursor(on)
     local pc = getPC()
     if not pc then return end
@@ -1587,10 +1723,11 @@ local function menuClose()
 end
 local function menuOpen(world)
     if not HUD then return end
-    S.menu = { sel = 1, top = 1 }
+    S.menu = { page = "main", sel = 1, top = 1, stack = {} }
+    S.menuMouse = nil
     local cur = "?"
     pcall(function() cur = fullName(world):match("([^.]+)$") end)
-    setText(HUD.menu.sub, "PAUSED  -  " .. cur:upper())
+    S.menuMap = cur:upper()
     HUD.showMenu(true)
     menuCursor(true)
     log("menu opened")
@@ -1606,46 +1743,249 @@ local function menuRowUnderMouse(world)
     if not (mp and vs and sc and sc > 0) then return nil end
     local cx, cy = vs.X / sc / 2, vs.Y / sc / 2
     local dx, dy = mp.X - cx, mp.Y - cy
-    if math.abs(dx) > 250 then return nil end
+    local moved = S.menuMouse ~= nil and math.abs(mp.X - S.menuMouse[1]) + math.abs(mp.Y - S.menuMouse[2]) > 2
+    S.menuMouse = { mp.X, mp.Y }
+    if math.abs(dx) > 310 then return nil end
     local i = math.floor((dy + 220) / 38) + 1
     if i < 1 or i > MENU_ROWS then return nil end
-    return i
+    return i, moved
 end
-local function menuDraw()
+
+local menuBack, menuItems, menuDraw, menuCapture
+do
+local function menuGo(page)
     local M = S.menu
-    if not (M and HUD) then return end
-    if M.sel < M.top then M.top = M.sel end
-    if M.sel > M.top + MENU_ROWS - 1 then M.top = M.sel - MENU_ROWS + 1 end
-    for i = 1, MENU_ROWS do
-        local idx = M.top + i - 1
-        local item = MENU_ITEMS[idx]
-        local e = HUD.menu.rows[i]
-        if item then
-            local sel = idx == M.sel
-            setText(e, sel and ("> " .. item[1] .. " <") or item[1])
-            setColor(e, sel and C_RED or C_GREY)
-            hudShow(e, true)
-        else
-            hudShow(e, false)
-        end
-    end
+    M.stack[#M.stack + 1] = { page = M.page, sel = M.sel, top = M.top }
+    M.page, M.sel, M.top = page, 1, 1
 end
-local function menuSelect(world, pc)
-    local item = MENU_ITEMS[S.menu.sel]
-    log("menu: " .. item[1])
-    if item[1] == "RESUME" then menuClose() return end
-    if item[1] == "QUIT GAME" then
-        menuClose()
-        pcall(function() KSL():QuitGame(world, pc, 0, false) end)
-        return
-    end
-    local path = item[2]
-    if not path then pcall(function() path = fullName(world):match("^%S+%s+(.-)%.[^.]+$") end) end   -- restart: this map
+menuBack = function()
+    local M = S.menu
+    local t = table.remove(M.stack)
+    if not t then menuClose() return end
+    M.page, M.sel, M.top = t.page, t.sel, t.top
+end
+-- graphics: the engine's own GameUserSettings (saved by the engine in GameUserSettings.ini)
+local QUAL = { [0] = "LOW", [1] = "MEDIUM", [2] = "HIGH", [3] = "EPIC", [4] = "CINEMATIC" }
+local function GUS()
+    local g
+    pcall(function() g = cdo("/Script/Engine.Default__GameUserSettings"):GetGameUserSettings() end)
+    return valid(g) and g or nil
+end
+local function gusGet(fn)
+    local v
+    pcall(function() local g = GUS() v = g[fn](g) end)
+    return v
+end
+local function gusSet(fn, v, resolution)
+    local ok, err = pcall(function()
+        local g = GUS()
+        g[fn](g, v)
+        if resolution then g:ApplyResolutionSettings(false) else g:ApplyNonResolutionSettings() end
+        g:SaveSettings()
+    end)
+    log("graphics " .. fn .. "(" .. tostring(v) .. ") " .. (ok and "ok" or tostring(err)))
+end
+local function console(cmd)
+    pcall(function() local pc = getPC() KSL():ExecuteConsoleCommand(getWorld(pc), cmd, pc) end)
+end
+local function applyScreenPercentage() console("r.ScreenPercentage " .. tostring(CFG.ScreenPercentage)) end
+
+local function mapPathOf(world)
+    local path
+    pcall(function() path = fullName(world):match("^%S+%s+(.-)%.[^.]+$") end)
+    return path
+end
+local function loadMap(world, path)
+    path = path or mapPathOf(world)
     menuClose()
     if path then
         log("loading map " .. path)
         pcall(function() GS():OpenLevel(world, FName(path), true, "") end)
     end
+end
+-- text shown on the game's wrist watch
+local function watchText(field)
+    local t
+    pcall(function() t = S.pawn.WatchRef[field].Text:ToString() end)
+    if t then t = t:gsub("[\r\n]+", " "):gsub("^%s+", ""):gsub("%s+$", "") end
+    return (t and t ~= "") and t:upper() or nil
+end
+
+local function I(label, act, value) return { label = label, act = act, value = value } end
+local function stepCfg(key, step, lo, hi, after)
+    return function(dir)
+        local v = (CFG[key] or 0) + dir * step
+        v = math.floor(v / step + 0.5) * step
+        if step >= 1 then v = math.floor(v + 0.5) end
+        CFG[key] = clamp(v, lo, hi)
+        if after then after() end
+        saveConfig()
+    end
+end
+local function cycle(v, n, dir) return ((v or 0) + dir) % n end
+
+menuItems = function(world, pc)
+    local M = S.menu
+    local L = {}
+    local function add(...) L[#L + 1] = I(...) end
+    local back = function() menuBack() end
+    if M.page == "main" then
+        M.title, M.sub = "BTDESKTOP", "PAUSED  -  " .. (S.menuMap or "")
+        add("RESUME", function() menuClose() end)
+        add("RESTART MAP", function() loadMap(world, nil) end)
+        add("BASEMENT (HUB)", function() loadMap(world, MAPS[1][2]) end)
+        add("CHANGE MAP", function() menuGo("maps") end, function() return ">" end)
+        add("WATCH", function() menuGo("watch") end, function() return ">" end)
+        add("GRAPHICS", function() menuGo("graphics") end, function() return ">" end)
+        add("CONTROLS", function() menuGo("controls") end, function() return ">" end)
+        add("GAMEPLAY", function() menuGo("gameplay") end, function() return ">" end)
+        add(M.quitArm and "QUIT GAME - PRESS AGAIN" or "QUIT GAME", function()
+            if not M.quitArm then M.quitArm = true return end
+            menuClose() pcall(function() KSL():QuitGame(world, pc, 0, false) end)
+        end)
+    elseif M.page == "maps" then
+        M.title, M.sub = "CHANGE MAP", "NOW: " .. (S.menuMap or "")
+        add("< BACK", back)
+        for _, m in ipairs(MAPS) do add(m[1]:upper(), function() loadMap(world, m[2]) end) end
+    elseif M.page == "watch" then
+        M.title, M.sub = "WATCH", "WHAT THE WRIST WATCH SHOWS IN VR"
+        local hp, hpMax, kills
+        pcall(function() hp, hpMax = num(S.pawn.PlayerHealth), num(S.pawn.playerhealthmax) end)
+        pcall(function() kills = num(S.pawn.Kills) end)
+        add("< BACK", back)
+        add("HEALTH", nil, function() return hp and string.format("%d / %d", math.floor(hp + 0.5), math.floor((hpMax or 0) + 0.5)) or "-" end)
+        add("CRACK", nil, function() return watchText("CrackAvailText") or "-" end)
+        add("KILLS", nil, function() return kills and tostring(math.floor(kills)) or (watchText("KillsText") or "-") end)
+        add("REMAINING", nil, function()
+            local t, b = watchText("RemainingTopText"), watchText("RemainingBottomText")
+            return (t or b) and ((t or "?") .. " / " .. (b or "?")) or "-"
+        end)
+        add("SCORE", nil, function() return watchText("ScoreText") or "-" end)
+        add("DISTANCE", nil, function() return watchText("DISTANCEText") or watchText("MetersText") or "-" end)
+        add("SMOKE CRACK (HEAL)", function() menuClose() useCrack() end, function() return "[" .. keyLabel(B.Crack) .. "]" end)
+        add("NIGHT VISION", function() toggleNightVision() end, function() return "[" .. keyLabel(B.NightVision) .. "]" end)
+        add("FLASHLIGHT", function() toggleFlashlight() end, function() return lampVisible() and "ON" or "OFF" end)
+        add("RESTART", function() loadMap(world, nil) end)
+        add("BACK TO BASEMENT", function() loadMap(world, MAPS[1][2]) end)
+    elseif M.page == "graphics" then
+        M.title, M.sub = "GRAPHICS", "SAVED AUTOMATICALLY"
+        add("< BACK", back)
+        add("QUALITY PRESET", function(dir)
+            local v = gusGet("GetOverallScalabilityLevel") or 2
+            if v < 0 then v = 2 end
+            gusSet("SetOverallScalabilityLevel", cycle(v, 5, dir))
+        end, function() local v = gusGet("GetOverallScalabilityLevel") return (v and v >= 0) and QUAL[v] or "CUSTOM" end)
+        for _, g in ipairs({ { "VIEW DISTANCE", "ViewDistanceQuality" }, { "SHADOWS", "ShadowQuality" },
+            { "ANTI-ALIASING", "AntiAliasingQuality" }, { "TEXTURES", "TextureQuality" }, { "EFFECTS", "VisualEffectQuality" },
+            { "POST PROCESSING", "PostProcessingQuality" }, { "FOLIAGE", "FoliageQuality" }, { "SHADING", "ShadingQuality" } }) do
+            add(g[1], function(dir) gusSet("Set" .. g[2], cycle(gusGet("Get" .. g[2]), 5, dir)) end,
+                function() return QUAL[gusGet("Get" .. g[2]) or -1] or "-" end)
+        end
+        add("RESOLUTION SCALE", stepCfg("ScreenPercentage", 10, 50, 200, applyScreenPercentage),
+            function() return tostring(CFG.ScreenPercentage) .. " %" end)
+        add("VSYNC", function() gusSet("SetVSyncEnabled", not gusGet("IsVSyncEnabled")) end,
+            function() return gusGet("IsVSyncEnabled") and "ON" or "OFF" end)
+        local LIM = { 0, 30, 60, 90, 120, 144, 165, 240 }
+        add("FRAME LIMIT", function(dir)
+            local cur, idx = gusGet("GetFrameRateLimit") or 0, 1
+            for i, v in ipairs(LIM) do if math.abs(v - cur) < 1 then idx = i end end
+            gusSet("SetFrameRateLimit", LIM[(idx - 1 + dir) % #LIM + 1] + 0.0)
+        end, function() local v = gusGet("GetFrameRateLimit") or 0 return (v < 1) and "UNLIMITED" or tostring(math.floor(v + 0.5)) end)
+        local WM = { [0] = "FULLSCREEN", [1] = "BORDERLESS", [2] = "WINDOWED" }
+        add("WINDOW MODE", function(dir) gusSet("SetFullscreenMode", cycle(gusGet("GetFullscreenMode"), 3, dir), true) end,
+            function() return WM[gusGet("GetFullscreenMode") or -1] or "-" end)
+        add("FIELD OF VIEW", stepCfg("FOV", 5, 60, 120, function() S.fovSet = nil end), function() return tostring(CFG.FOV) end)
+    elseif M.page == "controls" then
+        M.title, M.sub = "CONTROLS", M.capture and ("PRESS A KEY FOR " .. M.capture.label .. "   (ESC = CANCEL)") or "ENTER / CLICK A ROW, THEN PRESS THE NEW KEY"
+        add("< BACK", back)
+        add("MOUSE SENSITIVITY", stepCfg("MouseSensitivity", 0.1, 0.1, 10), function() return string.format("%.1f", CFG.MouseSensitivity) end)
+        add("AIM BUTTON", function() CFG.AimToggle = (CFG.AimToggle == 1) and 0 or 1 S.aimLatch = false saveConfig() end,
+            function() return CFG.AimToggle == 1 and "TOGGLE" or "HOLD" end)
+        for _, act in ipairs(ACTIONS) do
+            add(act[3], function()
+                M.capture = { action = act[1], label = act[3], t0 = S.now, prev = {} }
+            end, function()
+                if M.capture and M.capture.action == act[1] then return "..." end
+                return keyLabel(B[act[1]])
+            end)
+        end
+        add("RESET ALL KEYS", function()
+            for _, x in ipairs(ACTIONS) do B[x[1]] = x[2] end
+            rebuildWatch() saveConfig()
+        end)
+    elseif M.page == "gameplay" then
+        M.title, M.sub = "GAMEPLAY", "SAVED AUTOMATICALLY"
+        add("< BACK", back)
+        add("AIM ZOOM (FOV)", stepCfg("AimFOV", 5, 20, 85, function() S.aimFov = nil end), function() return tostring(CFG.AimFOV) end)
+        add("VIEW BOB", stepCfg("ViewBob", 0.5, 0, 4), function() return CFG.ViewBob == 0 and "OFF" or string.format("%.1f", CFG.ViewBob) end)
+        add("WALK SPEED", stepCfg("WalkSpeed", 25, 150, 600), function() return tostring(CFG.WalkSpeed) end)
+        add("SPRINT SPEED", stepCfg("SprintMultiplier", 0.1, 1, 4), function() return string.format("x%.1f", CFG.SprintMultiplier) end)
+        add("EYE HEIGHT", stepCfg("EyeHeight", 5, 120, 210), function() return tostring(CFG.EyeHeight) .. " CM" end)
+        add("CROSSHAIR", function() CFG.Crosshair = (CFG.Crosshair == 1) and 0 or 1 saveConfig() end,
+            function() return CFG.Crosshair == 1 and "ON" or "OFF" end)
+        add("GLOVES", function()
+            CFG.ShowGloves = (CFG.ShowGloves == 1) and 0 or 1
+            S.handShown = {}
+            pcall(handsSetup)
+            saveConfig()
+        end, function() return CFG.ShowGloves == 1 and "GAME GLOVES" or "SIMPLE HANDS" end)
+        add("GOD MODE", function() setGod(not S.god) end, function() return S.god and "ON" or "OFF" end)
+    end
+    return L
+end
+
+menuDraw = function(L)
+    local M = S.menu
+    if not (M and HUD) then return end
+    if M.sel > #L then M.sel = #L end
+    if M.sel < 1 then M.sel = 1 end
+    if M.sel < M.top then M.top = M.sel end
+    if M.sel > M.top + MENU_ROWS - 1 then M.top = M.sel - MENU_ROWS + 1 end
+    setText(HUD.menu.title, M.title or "BTDESKTOP")
+    setText(HUD.menu.sub, M.sub or "")
+    for i = 1, MENU_ROWS do
+        local idx = M.top + i - 1
+        local item = L[idx]
+        local e, v = HUD.menu.rows[i], HUD.menu.vals[i]
+        if item then
+            local sel = idx == M.sel
+            setText(e, (sel and "> " or "  ") .. item.label)
+            setColor(e, sel and C_RED or (item.act and C_GREY or C_DIM))
+            hudShow(e, true)
+            local val = item.value and item.value() or ""
+            if item.value and sel and M.page ~= "controls" and val ~= ">" and item.act and not val:find("^%[") then val = "<  " .. val .. "  >" end
+            setText(v, val)
+            setColor(v, sel and C_WHITE or C_GREY)
+            hudShow(v, val ~= "")
+        else
+            hudShow(e, false)
+            hudShow(v, false)
+        end
+    end
+end
+
+-- Esc > Controls: wait for the next key pressed
+menuCapture = function(pc)
+    local c = S.menu and S.menu.capture
+    if not c then return end
+    for _, n in ipairs(ALLKEYS) do
+        local ok, v = pcall(function() return pc:IsInputKeyDown(fkey(n)) end)
+        local d = ok and v == true
+        if d and c.prev[n] == false and S.now - c.t0 > 0.15 then
+            local old = B[c.action]
+            for _, x in ipairs(ACTIONS) do   -- a key does one thing: the other action gets the old key
+                if x[1] ~= c.action and B[x[1]] == n then B[x[1]] = old end
+            end
+            B[c.action] = n
+            S.menu.capture = nil
+            rebuildWatch()
+            saveConfig()
+            log("key " .. c.action .. " = " .. n)
+            return
+        end
+        c.prev[n] = d
+    end
+end
 end
 
 ------------------------------------------------------------------------------- self test
@@ -2232,6 +2572,7 @@ end
 -- Click to touch: the hand (left one while you hold a weapon) reaches to what is under the
 -- crosshair (up to 2.5 m) and back; its colliders press buttons, arrows, map pictures, door knobs.
 local function touchUnderCrosshair(world, useLeft)
+    if S.touch then return end   -- one reach at a time
     local cl, q = viewBasis()
     local fx, fy, fz = qrot(q, 1, 0, 0)
     local hit = {}
@@ -2249,9 +2590,7 @@ local function touchUnderCrosshair(world, useLeft)
     pt = v3(pt.X + fx * 4, pt.Y + fy * 4, pt.Z + fz * 4)
     S.touch = { pt = pt, t0 = S.now, left = useLeft }
     glovesCollide(true)
-    local what = "-"
-    pcall(function() what = shortName(hit.Actor:Get()) end)
-    log("touch " .. what)
+    log(string.format("touch (%s hand, %s)", useLeft and "left" or "right", (ok and res) and "hit" or "air"))
 end
 
 -- left click with a pipe bomb in the hand: throw a lit one. Lighting/throwing the game's own holster
@@ -2466,34 +2805,54 @@ local function frame()
     -- escape menu: while open it takes the keys (W/S/Up/Down/wheel, Enter/Space/click)
     blockInput = false
     if rawPressed("Escape") then
-        if S.menu then menuClose() else
+        if S.menu then
+            if S.menu.capture then S.menu.capture = nil
+            elseif S.menu.page ~= "main" then menuBack()
+            else menuClose() end
+        else
             if S.fire.held then fireSet(false) S.fire.held = false end
             menuOpen(world)
         end
     end
     local inMenu = S.menu ~= nil
     if inMenu then
-        local wm = axis(pc, "MouseWheelAxis")
-        if wm ~= 0 and now - (S.menuWheelT or 0) < 0.08 then wm = 0 elseif wm ~= 0 then S.menuWheelT = now end
-        if rawPressed("W") or rawPressed("Up") or wm > 0 then S.menu.sel = math.max(1, S.menu.sel - 1) end
-        if rawPressed("S") or rawPressed("Down") or wm < 0 then S.menu.sel = math.min(#MENU_ITEMS, S.menu.sel + 1) end
-        local row = menuRowUnderMouse(world)
-        if row and row ~= S.menu.lastRow then
-            S.menu.lastRow = row
-            local idx = S.menu.top + row - 1
-            if MENU_ITEMS[idx] then S.menu.sel = idx end
+        if S.menu.capture then
+            menuCapture(pc)
+        else
+            local L = menuItems(world, pc)
+            local wm = axis(pc, "MouseWheelAxis")
+            if wm ~= 0 and now - (S.menuWheelT or 0) < 0.08 then wm = 0 elseif wm ~= 0 then S.menuWheelT = now end
+            local sel0 = S.menu.sel
+            if rawPressed("W") or rawPressed("Up") or wm > 0 then S.menu.sel = math.max(1, S.menu.sel - 1) end
+            if rawPressed("S") or rawPressed("Down") or wm < 0 then S.menu.sel = math.min(#L, S.menu.sel + 1) end
+            local row, moved = menuRowUnderMouse(world)
+            if row and moved then
+                local idx = S.menu.top + row - 1
+                if L[idx] then S.menu.sel = idx end
+            end
+            if S.menu.sel ~= sel0 then S.menu.quitArm = nil end
+            local it = L[S.menu.sel]
+            local dir
+            if rawPressed("Enter") or rawPressed("SpaceBar") or (rawPressed("LeftMouseButton") and row ~= nil) then dir = 1 end
+            if it and it.value and (rawPressed("D") or rawPressed("Right")) then dir = 1 end
+            if it and it.value and (rawPressed("A") or rawPressed("Left") or (rawPressed("RightMouseButton") and row ~= nil)) then dir = -1 end
+            if it and it.act and dir then
+                log("menu: " .. S.menu.page .. " / " .. it.label .. " (" .. dir .. ")")
+                local okA, eA = pcall(it.act, dir)
+                if not okA then log("menu action error: " .. tostring(eA)) end
+            end
         end
-        local choose = rawPressed("Enter") or rawPressed("SpaceBar") or (rawPressed("LeftMouseButton") and row ~= nil)
-        local okM, eM = pcall(menuDraw, S.fovNow or CFG.FOV)
-        if not okM then log("menu error: " .. tostring(eM)) end
-        if choose then menuSelect(world, pc) end
+        if S.menu then
+            local okM, eM = pcall(function() menuDraw(menuItems(world, pc)) end)
+            if not okM then log("menu error: " .. tostring(eM)) end
+        end
         blockInput = S.menu ~= nil   -- no gameplay input behind the menu
     end
 
     -- toggles
-    if pressed("N") then toggleNightVision() end
-    if pressed("F") then toggleFlashlight() end
-    if pressed("T") or pressed("MiddleMouseButton") then throwGrenade(world) end
+    if pressed(B.NightVision) then toggleNightVision() end
+    if pressed(B.Flashlight) then toggleFlashlight() end
+    if pressed(B.Grenade) or pressed("MiddleMouseButton") then throwGrenade(world) end
     if pressed("F1") then S.overlay = not S.overlay log("debug text " .. (S.overlay and "ON" or "OFF")) end
     if pressed("F2") then setGod(not S.god) end
     if pressed("F3") then spawnNPC(world) end
@@ -2507,15 +2866,18 @@ local function frame()
     end
     if pressed("F8") then log("STATUS " .. statusLine():gsub("\n", " | ")) end
     if pressed("J") then diagHook() pcall(diagDump, world, pc) S.diagShots = 6 end
-    if pressed("V") then S.free.R, S.free.L, S.demo = { 0, 0, 0 }, { 0, 0, 0 }, false end
-    for i, d in ipairs(DIGITS) do if pressed(d) then equip(i) end end
-    if pressed("Zero") or pressed("Q") then dropRight("holster") S.sel = nil end
-    if pressed("B") then toggleFireMode() end
-    if pressed("E") then touchUnderCrosshair(world, heldActor(S.R) ~= nil) end
-    if pressed("H") then useCrack() end
-    if pressed("G") then grabNearest() end
-    if pressed("R") then reload(heldActor(S.R)) end
-    if pressed("LeftMouseButton") then
+    if pressed(B.ResetHands) then S.free.R, S.free.L, S.demo = { 0, 0, 0 }, { 0, 0, 0 }, false end
+    for i = 1, 12 do if SLOTS[i] and pressed(B["Slot" .. i]) then equip(i) end end
+    if pressed(B.Holster) then dropRight("holster") S.sel = nil end
+    if pressed(B.FireMode) then toggleFireMode() end
+    if pressed(B.Interact) then
+        local okT, eT = pcall(touchUnderCrosshair, world, heldActor(S.R) ~= nil)
+        if not okT then log("touch error: " .. tostring(eT)) end
+    end
+    if pressed(B.Crack) then useCrack() end
+    if pressed(B.Grab) then grabNearest() end
+    if pressed(B.Reload) then reload(heldActor(S.R)) end
+    if pressed(B.Fire) then
         local g = heldActor(S.R)
         local hasMuzzle = false
         pcall(function() hasMuzzle = valid(g.FireDirection) end)
@@ -2535,8 +2897,9 @@ local function frame()
             S.meleeAt = now + 0.12
         elseif S.sel and SLOTS[S.sel] and SLOTS[S.sel].grenade then
             throwGrenade(world)
-        else
-            touchUnderCrosshair(world, false)   -- empty hand: press / touch what you click on
+        elseif now - (S.spawnT or 0) > 2 then
+            local okT, eT = pcall(touchUnderCrosshair, world, false)   -- empty hand: press / touch what you click on
+            if not okT then log("touch error: " .. tostring(eT)) end
         end
     end
     if S.meleeAt and now >= S.meleeAt then S.meleeAt = nil pcall(meleeHit, world) end
@@ -2555,7 +2918,7 @@ local function frame()
         log("crack: health " .. tostring(S.crackCheck.before) .. " -> " .. tostring(after))
         S.crackCheck = nil
     end
-    if released("LeftMouseButton") and S.fire.held then fireSet(false) S.fire.held = false end
+    if released(B.Fire) and S.fire.held then fireSet(false) S.fire.held = false end
     fireCheck()
 
     -- the game sometimes lets go of a weapon by itself (a fresh character setting up its hands, two-hand
@@ -2595,9 +2958,9 @@ local function frame()
     local mx, my = 0, 0
     if S.look and not inMenu then mx, my = axis(pc, "MouseX"), axis(pc, "MouseY") end
     local wheel = inMenu and 0 or axis(pc, "MouseWheelAxis")
-    if (CFG.AimToggle == 1 and pressed("RightMouseButton")) or pressed("Z") then S.aimLatch = not S.aimLatch end
-    if CFG.AimToggle ~= 1 and pressed("RightMouseButton") then S.aimLatch = false end
-    local aiming = S.aimLatch == true or (CFG.AimToggle ~= 1 and down("RightMouseButton"))
+    if (CFG.AimToggle == 1 and pressed(B.Aim)) or pressed(B.AimToggle) then S.aimLatch = not S.aimLatch end
+    if CFG.AimToggle ~= 1 and pressed(B.Aim) then S.aimLatch = false end
+    local aiming = S.aimLatch == true or (CFG.AimToggle ~= 1 and down(B.Aim))
     local sens = CFG.MouseSensitivity * (S.fovNow / CFG.FOV)   -- slower turning when zoomed in
     if down("LeftAlt") or down("X") then
         local h = down("LeftAlt") and S.free.R or S.free.L
@@ -2634,15 +2997,16 @@ local function frame()
     S.fovNow = fov
 
     -- movement
-    local f = (down("W") and 1 or 0) - (down("S") and 1 or 0)
-    local r = (down("D") and 1 or 0) - (down("A") and 1 or 0)
+    local f = (down(B.Forward) and 1 or 0) - (down(B.Back) and 1 or 0)
+    local r = (down(B.Right) and 1 or 0) - (down(B.Left) and 1 or 0)
     local yr = S.yaw * DEG
-    local crouchKey = down("LeftControl") or down("C")
+    local crouchKey = down(B.Crouch)
+    S.viewStill = (mx == 0 and my == 0 and f == 0 and r == 0)
     if S.noclip then
         local q = rotToQuat(S.pitch, S.yaw, 0)
         local fx, fy, fz = qrot(q, 1, 0, 0)
-        local u = (down("SpaceBar") and 1 or 0) - (crouchKey and 1 or 0)
-        local sp = CFG.NoclipSpeed * (down("LeftShift") and 2 or 1) * dt
+        local u = (down(B.Jump) and 1 or 0) - (crouchKey and 1 or 0)
+        local sp = CFG.NoclipSpeed * (down(B.Sprint) and 2 or 1) * dt
         local dx = (fx * f - math.sin(yr) * r) * sp
         local dy = (fy * f + math.cos(yr) * r) * sp
         local dz = (fz * f + u) * sp
@@ -2653,7 +3017,7 @@ local function frame()
         pcall(function() S.cm.Velocity = v3(0, 0, 0) end)
     else
         if S.cm and S.baseSpeed then
-            local want = (CFG.WalkSpeed > 0 and CFG.WalkSpeed or S.baseSpeed) * ((down("LeftShift") and not aiming) and CFG.SprintMultiplier or 1)
+            local want = (CFG.WalkSpeed > 0 and CFG.WalkSpeed or S.baseSpeed) * ((down(B.Sprint) and not aiming) and CFG.SprintMultiplier or 1)
             pcall(function() if S.cm.MaxWalkSpeed ~= want then S.cm.MaxWalkSpeed = want end end)
         end
         if f ~= 0 or r ~= 0 then
@@ -2663,12 +3027,12 @@ local function frame()
             if S.cm then
                 pcall(function() pawn:AddMovementInput(v3(dx, dy, 0), 1.0, true) end)
             else  -- pawn without a movement component (VR template hub pawn)
-                local sp = 250 * (down("LeftShift") and CFG.SprintMultiplier or 1) * dt
+                local sp = 250 * (down(B.Sprint) and CFG.SprintMultiplier or 1) * dt
                 local p = pawn:K2_GetActorLocation()
                 pcall(function() pawn:K2_SetActorLocation(v3(p.X + dx * sp, p.Y + dy * sp, p.Z), true, {}, false) end)
             end
         end
-        if pressed("SpaceBar") then pcall(function() pawn:Jump() end) end
+        if pressed(B.Jump) then pcall(function() pawn:Jump() end) end
     end
     local wantCrouch = (crouchKey and not S.noclip) and CFG.CrouchDrop or 0
     S.crouch = S.crouch + (wantCrouch - S.crouch) * math.min(1, dt * 12)
@@ -2681,7 +3045,7 @@ local function frame()
     local movingNow = (f ~= 0 or r ~= 0) and not S.noclip
     local onGround = true
     pcall(function() onGround = not S.cm:IsFalling() end)
-    local sprintNow = movingNow and down("LeftShift") and S.ads < 0.1
+    local sprintNow = movingNow and down(B.Sprint) and S.ads < 0.1
     S.camBobT = (S.camBobT or 0) + ((movingNow and onGround) and dt * (sprintNow and 11.5 or 7.5) or 0)
     local bobWant = (movingNow and onGround) and CFG.ViewBob * (sprintNow and 1.8 or 1) * (1 - 0.8 * S.ads) or 0
     S.camBob = (S.camBob or 0) + (bobWant - (S.camBob or 0)) * math.min(1, dt * 6)
@@ -2723,4 +3087,4 @@ LoopInGameThreadAfterFrames(1, function()
     end
     return false
 end)
-log("BTDesktop loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: see README.md in the BTDesktop mod folder")
+log("BTDesktop 1.1.0 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")

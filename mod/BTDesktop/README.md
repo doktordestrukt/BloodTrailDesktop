@@ -30,12 +30,12 @@ https://github.com/doktordestrukt/BloodTrailDesktop
 | Mouse | look (yaw turns the pawn, pitch tilts the view; slower while zoomed) |
 | Arrow keys | turn / look up and down (keyboard alternative to the mouse) |
 | Shift | sprint (not while aiming) |
-| Ctrl or C | crouch (head 60 cm lower) |
+| Ctrl | crouch (head 60 cm lower) |
 | Space | jump (noclip: fly up) |
 | Right mouse (hold) / Z (toggle) | aim down sights: zoom to `AimFOV`, sights centred under the white crosshair |
 | Mouse wheel while aiming | zoom in / out (15 - 85 degrees) |
 | Mouse wheel | next / previous weapon on the loadout bar |
-| 1 - 9 | take out that weapon. The first slots are the weapons in your holsters (chosen on the basement's WEAPON LOADOUT board: HIP, BACK, LEFT), then the spawnable ones. The same gun comes back each time |
+| 1 - 9, 0, -, = | take out the weapon in that slot (slots 10-12: 0, -, =; the knife and bat are on 0 and -). The first slots are the weapons in your holsters (chosen on the basement's WEAPON LOADOUT board: HIP, BACK, LEFT), then the spawnable ones. The same gun comes back each time |
 | Left mouse | trigger of the held gun, a melee swing that really hits, throw a held pipe bomb - or with empty hands: touch what you click on |
 | E | touch / press what is under the crosshair (buttons, board arrows, map pictures, door knobs): the hand reaches out and back (the left hand while you hold a weapon) |
 | B | fire mode: SEMI -> BURST -> AUTO (the gun's own `Firingmode`) |
@@ -44,8 +44,8 @@ https://github.com/doktordestrukt/BloodTrailDesktop
 | N | night vision |
 | F | flashlight (head lamp) |
 | T or middle mouse | throw a lit pipe bomb |
-| Esc | menu: resume, restart, change map (21 maps incl. the basement), quit |
-| 0 or Q | holster: put the weapon away (kept for next time - no new gun, no new magazine) |
+| Esc | menu: resume, restart, change map (21 maps), WATCH (health, crack, kills, score...), GRAPHICS, CONTROLS (rebind every key), GAMEPLAY |
+| Q | holster: put the weapon away (kept for next time - no new gun, no new magazine) |
 | G | grab the grippable thing nearest your line of sight (up to 3 m), or drop what you hold |
 | Alt + mouse (+ wheel) | move the right hand freely (left/right, up/down, wheel = forward/back) |
 | X + mouse (+ wheel) | move the left hand freely |
@@ -61,6 +61,15 @@ https://github.com/doktordestrukt/BloodTrailDesktop
 | J | write diagnostics (HUD, held gun, damage table, bullets) to the log |
 
 Avoid Ctrl+H / Ctrl+J: those are UE4SS dump keys.
+
+## Menu and settings
+
+Esc opens the menu. GRAPHICS changes the engine's quality settings (preset, view distance, shadows,
+anti-aliasing, textures, effects, post processing, foliage, shading, resolution scale, vsync, frame
+limit, window mode, field of view). CONTROLS rebinds every key (pick a row, press the new key) and
+sets mouse sensitivity and hold/toggle aiming. GAMEPLAY: aim zoom, view bob, walk/sprint speed, eye
+height, crosshair, gloves, god mode. WATCH shows what the wrist watch shows in VR. Everything is saved
+in `BTDesktop.ini` (keys as `Key_<Action>=`).
 
 ## Sound
 
