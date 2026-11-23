@@ -51,7 +51,7 @@ local CFG = {
     ShowGloves = 1,           -- 1 = show the game's own gloves on both hands (pinned to the hands, no physics)
     Crosshair = 1,            -- 1 = white crosshair
     ScreenPercentage = 100,   -- resolution scale in % (Esc > Graphics)
-    GunHands = 1,             -- 1 = draw the hands the game poses on each weapon (grip + handguard / pump)
+    GunHands = 0,             -- 1 = show the weapon's own posed hand meshes (makes the game drop the weapon after a shot: keep 0)
     RadioVolume = 60,         -- radio volume 0-100 (music from the Music folder in the game folder)
     RadioNoise = 1,           -- 1 = enemies hear the radio (louder = heard further away)
 }
@@ -632,8 +632,17 @@ local function dropRight(mode)
 end
 
 -- R: a full magazine / tube, a round in the chamber, slide/bolt forward, ready to fire
+local function gunState(gun)
+    local t = {}
+    for _, k in ipairs({ "CanBeFired", "RoundChambered", "FullyCocked", "BoltLockedBack", "HasSpentShell", "Ammo", "AmmoMAX", "Firingmode", "SliderGripActive", "WasSocketed" }) do
+        pcall(function() t[#t + 1] = k .. "=" .. tostring(gun[k]) end)
+    end
+    pcall(function() local m = gun.MagRef t[#t + 1] = "Mag=" .. (valid(m) and (shortName(m) .. ":" .. tostring(m.magazineAmmo) .. "/" .. tostring(m.MaxAmmo)) or "none") end)
+    return table.concat(t, " ")
+end
 local function reload(gun)
     if not valid(gun) then return nil end
+    log("reload state before: " .. gunState(gun))
     local before = ammoOf(gun)
     pcall(function() local m = gun.MagRef if valid(m) then m.magazineAmmo = m.MaxAmmo pcall(function() m:Showbullets() end) end end)
     pcall(function() if num(gun.AmmoMAX) and gun.AmmoMAX > 0 then gun.Ammo = gun.AmmoMAX end end)
@@ -645,6 +654,7 @@ local function reload(gun)
     pcall(function() gun.HasSpentShell = false end)
     local a = ammoOf(gun)
     log("reload " .. shortName(gun) .. ": ammo " .. tostring(before) .. " -> " .. tostring(a))
+    log("reload state after: " .. gunState(gun))
     S.popupMsg = "RELOADED"
     return a
 end
@@ -1110,17 +1120,41 @@ local function hudBuild(world, pc)
     H.menu.edge = uiRect(H, 0.5, 0.5, 0.5, 0.5, -318, 0, 4, 680, C_RED)
     H.menu.title = uiText(H, 0.5, 0.5, 0.5, 0, 0, -310, 34, C_RED, true)
     H.menu.sub = uiText(H, 0.5, 0.5, 0.5, 0, 0, -262, 13, C_GREY, true)
-    H.menu.vals = {}
+    H.menu.vals, H.menu.arrL, H.menu.arrR = {}, {}, {}
     for i = 1, MENU_ROWS do
         H.menu.rows[i] = uiText(H, 0.5, 0.5, 0, 0, -280, -220 + (i - 1) * 38, 17, C_GREY, true)
-        H.menu.vals[i] = uiText(H, 0.5, 0.5, 1, 0, 280, -220 + (i - 1) * 38, 17, C_GREY, true)
+        H.menu.vals[i] = uiText(H, 0.5, 0.5, 0.5, 0, 205, -220 + (i - 1) * 38, 17, C_GREY, true)
+        H.menu.arrL[i] = uiText(H, 0.5, 0.5, 0.5, 0, 112, -222 + (i - 1) * 38, 20, C_RED, true)
+        H.menu.arrR[i] = uiText(H, 0.5, 0.5, 0.5, 0, 298, -222 + (i - 1) * 38, 20, C_RED, true)
+        setText(H.menu.arrL[i], "<")
+        setText(H.menu.arrR[i], ">")
     end
-    H.menu.hint = uiText(H, 0.5, 0.5, 0.5, 0, 0, 300, 11, C_DIM, true)
+    H.menu.hint = uiText(H, 0.5, 0.5, 0.5, 0, 0, 316, 11, C_DIM, true)
+    -- radio timeline (menu radio pages): click on it to jump in the song
+    H.rbar = {
+        bg = uiRect(H, 0.5, 0.5, 0, 0.5, -280, 286, 560, 8, { R = 0.12, G = 0.02, B = 0.03, A = 0.95 }),
+        fill = uiRect(H, 0.5, 0.5, 0, 0.5, -280, 286, 1, 8, C_RED),
+        l = uiText(H, 0.5, 0.5, 0, 0, -280, 293, 11, C_GREY, true),
+        r = uiText(H, 0.5, 0.5, 1, 0, 280, 293, 11, C_GREY, true),
+    }
+    H.rbar.fill.h = 8
+    -- now playing (above the ammo panel)
+    H.np = {
+        bg = uiRect(H, 1, 1, 1, 1, -22, -136, 240, 62, C_PANEL),
+        edge = uiRect(H, 1, 1, 1, 1, -22 - 236, -136, 4, 62, C_RED),
+        tag = uiText(H, 1, 1, 0, 0, -22 - 222, -136 - 58, 10, C_RED, true),
+        title = uiText(H, 1, 1, 1, 0, -34, -136 - 44, 13, C_WHITE, true),
+        artist = uiText(H, 1, 1, 1, 0, -34, -136 - 26, 10, C_GREY, true),
+        barBg = uiRect(H, 1, 1, 0, 1, -22 - 222, -142, 196, 3, { R = 0.12, G = 0.02, B = 0.03, A = 0.95 }),
+        bar = uiRect(H, 1, 1, 0, 1, -22 - 222, -142, 1, 3, C_RED),
+        time = uiText(H, 1, 1, 1, 0, -34, -136 - 58, 10, C_GREY, true),
+    }
+    H.np.bar.h = 3
     setText(H.menu.title, "BTDESKTOP")
     setText(H.menu.hint, "W/S: CHOOSE   A/D OR LMB/RMB: CHANGE   ENTER: SELECT   ESC: BACK")
     local function showMenu(on)
         for k, e in pairs(H.menu) do
-            if k == "rows" or k == "vals" then for _, r in ipairs(e) do hudShow(r, on) end else hudShow(e, on) end
+            if k == "rows" or k == "vals" or k == "arrL" or k == "arrR" then for _, r in ipairs(e) do hudShow(r, on and (k == "rows" or k == "vals")) end else hudShow(e, on) end
         end
     end
     H.showMenu = showMenu
@@ -1201,6 +1235,25 @@ local function hudUpdate(world, pc)
         setWidth(H.hpBar, math.floor(230 * clamp(hp / hpMax, 0, 1) + 0.5))
     end
     for _, c in ipairs(H.cross) do hudShow(c, not S.menu and CFG.Crosshair == 1) end
+    local r = S.radio
+    local npOn = r ~= nil and (r.mode == "playing" or r.mode == "paused") and (r.title or "") ~= ""
+    for _, e in pairs(H.np) do hudShow(e, npOn) end
+    if npOn then
+        setText(H.np.tag, r.mode == "paused" and "RADIO - PAUSED" or "RADIO - NOW PLAYING")
+        setText(H.np.title, r.title:upper():sub(1, 24))
+        setText(H.np.artist, (r.artist ~= "" and r.artist or "UNKNOWN ARTIST"):upper():sub(1, 30))
+        local s1, s2 = math.floor(r.pos / 1000), math.floor(r.len / 1000)
+        setText(H.np.time, string.format("%d:%02d / %d:%02d", s1 // 60, s1 % 60, s2 // 60, s2 % 60))
+        setWidth(H.np.bar, math.max(1, math.floor(196 * ((r.len > 0) and clamp(r.pos / r.len, 0, 1) or 0) + 0.5)))
+    end
+    local barOn = S.menu ~= nil and S.menu.bar == true and r ~= nil and r.len > 0
+    for _, e in pairs(H.rbar) do hudShow(e, barOn) end
+    if barOn then
+        setWidth(H.rbar.fill, math.max(1, math.floor(560 * clamp(r.pos / r.len, 0, 1) + 0.5)))
+        local s1, s2 = math.floor(r.pos / 1000), math.floor(r.len / 1000)
+        setText(H.rbar.l, string.format("%d:%02d   CLICK THE BAR TO JUMP", s1 // 60, s1 % 60))
+        setText(H.rbar.r, string.format("%d:%02d", s2 // 60, s2 % 60))
+    end
     hudShow(H.popup, S.now < H.popupUntil)
     local f = {}
     if S.god then f[#f + 1] = "GOD" end
@@ -1416,7 +1469,26 @@ local function qlookLocal(from, to)
     return rotToQuat(math.atan(tz, math.sqrt(tx * tx + ty * ty)) * RAD, math.atan(ty, tx) * RAD, 0)
 end
 
+-- the game turns the gloves' physics back on when it re-grips a weapon (e.g. after a shot): then the
+-- glove, and the weapon it holds, drift away. Pin them back the moment they leave the controller.
+local function pinGloves()
+    for _, side in ipairs({ { "GraspingHandRight", S.R }, { "GraspingHandLeft", S.L } }) do
+        pcall(function()
+            local h = S.pawn[side[1]]
+            if not valid(h) or not side[2] then return end
+            local root = h:K2_GetRootComponent()
+            local hl, cl = root:K2_GetComponentLocation(), side[2]:K2_GetComponentLocation()
+            local d = math.abs(hl.X - cl.X) + math.abs(hl.Y - cl.Y) + math.abs(hl.Z - cl.Z)
+            if d > 2 or root:IsSimulatingPhysics() then
+                root:SetSimulatePhysics(false)
+                h:K2_AttachToComponent(side[2], FName("None"), 2, 2, 1, false)
+                if d > 20 then log(string.format("%s was %.0f cm away - pinned back", side[1], d)) end
+            end
+        end)
+    end
+end
 local function updateHands(dt, mx, my, moving)
+    pinGloves()
     local a = S.ads
     local sprinting = moving and down(B.Sprint) and a < 0.1 and not down(B.Fire) and not down(B.Crouch)
     S.sprintK = (S.sprintK or 0) + ((sprinting and 1 or 0) - (S.sprintK or 0)) * math.min(1, dt * 8)
@@ -1462,6 +1534,16 @@ local function updateHands(dt, mx, my, moving)
                 end
                 S.vm = { rot = mRot, pos = mPos, len = math.sqrt(mPos[1] ^ 2 + mPos[2] ^ 2 + mPos[3] ^ 2),
                     melee = fd == nil, level = fd == nil and ammoOf(gun) ~= nil }
+                -- where the game's artists put the support hand on this weapon (OffHandMeshL, never shown:
+                -- showing it makes the game drop the weapon), in weapon space
+                pcall(function()
+                    local oh = gun.OffHandMeshL
+                    if valid(oh) and valid(oh.SkeletalMesh) then
+                        local ot = oh:K2_GetComponentToWorld()
+                        S.vm.oh = { p = { qrot(igq, ot.Translation.X - gt.Translation.X, ot.Translation.Y - gt.Translation.Y, ot.Translation.Z - gt.Translation.Z) },
+                            q = qmul(igq, { ot.Rotation.X, ot.Rotation.Y, ot.Rotation.Z, ot.Rotation.W }) }
+                    end
+                end)
                 -- the game's rigid AttachmentGrip keeps the weapon on the right controller; the controller
                 -- is posed in body space every frame, so the weapon moves with the view in the same frame
             end)
@@ -1478,8 +1560,9 @@ local function updateHands(dt, mx, my, moving)
                 hip = { hip[1] + 35 * j, hip[2] - 8 * j, hip[3] + 10 * j }
             end
             if vm.melee then
-                gq = rotToQuat(vm.level and 0 or CFG.MeleePitch, 0, 0)
-                gp = hip
+                -- melee: held low on the right, blade / bat angled forward and away from the view
+                gq = rotToQuat(vm.level and 0 or 25, -10, 0)
+                gp = { 40 + (hip[1] - 31), 22 + (hip[2] - 10), -26 + (hip[3] + 13) }
             else
                 -- the muzzle points at the spot under the crosshair (camera trace, smoothed), so rounds
                 -- land on the crosshair; aiming: sights (SightHeight above the bore) on the crosshair
@@ -1573,8 +1656,27 @@ local function updateHands(dt, mx, my, moving)
             local bl = { qrot(shotQ, 0, -1, 0) }
             local fore = (w and w[4]) or (vm.melee and -1 or 20)
             local lp, lq
+            -- offset of the left glove's mesh from the left controller (rigid: the glove is pinned)
+            local gOffP, gOffQ
+            if vm.oh and not vm.melee then
+                pcall(function()
+                    local gm = S.pawn.GraspingHandLeft.SkeletalMeshComponent
+                    local ct = S.L:K2_GetComponentToWorld()
+                    local gt2 = gm:K2_GetComponentToWorld()
+                    local ic = qconj({ ct.Rotation.X, ct.Rotation.Y, ct.Rotation.Z, ct.Rotation.W })
+                    gOffP = { qrot(ic, gt2.Translation.X - ct.Translation.X, gt2.Translation.Y - ct.Translation.Y, gt2.Translation.Z - ct.Translation.Z) }
+                    gOffQ = qmul(ic, { gt2.Rotation.X, gt2.Rotation.Y, gt2.Rotation.Z, gt2.Rotation.W })
+                end)
+            end
             if vm.melee then
-                lp, lq = { 32, -20, -26 }, rotToQuat(0, 0, 0)
+                lp, lq = nil, nil   -- the free hand hangs at your side
+            elseif vm.oh and gOffP then
+                -- support hand exactly where the game poses it on this weapon (handguard, pump, under the grip)
+                local ohq = qmul(gq, vm.oh.q)
+                local ox2, oy2, oz2 = qrot(gq, vm.oh.p[1], vm.oh.p[2], vm.oh.p[3])
+                lq = qmul(ohq, qconj(gOffQ))
+                local px, py, pz = qrot(lq, gOffP[1], gOffP[2], gOffP[3])
+                lp = { gp[1] + ox2 - px, gp[2] + oy2 - py, gp[3] + oz2 - pz }
             elseif fore > 0 then
                 local dn = 4 + 10 * a
                 lp = { gp[1] + bf[1] * fore + bd[1] * dn, gp[2] + bf[2] * fore + bd[2] * dn, gp[3] + bf[3] * fore + bd[3] * dn }
@@ -1584,7 +1686,7 @@ local function updateHands(dt, mx, my, moving)
                 lp = { gp[1] + bl[1] * 3 + bd[1] * dn - bf[1] * 2, gp[2] + bl[2] * 3 + bd[2] * dn - bf[2] * 2, gp[3] + bl[3] * 3 + bd[3] * dn - bf[3] * 2 }
                 lq = shotQ
             end
-            pL, qL = camToParent(lp, lq)
+            if lp then pL, qL = camToParent(lp, lq) else pL, qL = sideL, downQ end
             if S.now - (S.stabT or 0) > 0.5 then
                 S.stabT = S.now
                 pcall(function() gun.Stabilized = true end)
@@ -1612,7 +1714,7 @@ local function updateHands(dt, mx, my, moving)
             wR = { 8 * math.sin(t * 2.1), 12 * math.cos(t * 1.7), 14 * math.sin(t * 1.3) }
             wL = { 8 * math.cos(t * 1.9), 12 * math.sin(t * 1.5), 14 * math.cos(t * 1.1) }
         end
-        local free = (wR[1] ~= 0 or wR[2] ~= 0 or wR[3] ~= 0 or S.demo or a > 0.01)
+        local free = (wR[1] ~= 0 or wR[2] ~= 0 or wR[3] ~= 0 or S.demo)   -- aiming with empty hands keeps them down
         if free or S.jab > 0 then
             -- raised hands (aim / free move / swing): in front of the view
             local o = lerp3({ 34, 15, -18 }, { 42, 4, -11 }, a)
@@ -1799,53 +1901,108 @@ local function menuRowUnderMouse(world)
     local dx, dy = mp.X - cx, mp.Y - cy
     local moved = S.menuMouse ~= nil and math.abs(mp.X - S.menuMouse[1]) + math.abs(mp.Y - S.menuMouse[2]) > 2
     S.menuMouse = { mp.X, mp.Y }
-    if math.abs(dx) > 310 then return nil end
+    S.menuMouseDx, S.menuMouseDy = dx, dy
+    if math.abs(dx) > 320 then return nil end
     local i = math.floor((dy + 220) / 38) + 1
     if i < 1 or i > MENU_ROWS then return nil end
-    return i, moved
+    return i, moved, dx
 end
 
 -- radio: plays the music files from <game folder>\Music through a small hidden PowerShell player
 -- (radio.ps1 in the mod folder; Windows Media Player engine: mp3/wav/wma/m4a/flac)
-local RADIO = { on = false }
+local RADIO = { on = false, seq = 0, list = {} }
 RADIO.root = modDir:match("^(.*)[/\\][Bb][Tt][Vv][Rr][/\\][Bb]inaries") or modDir
 RADIO.dir = RADIO.root .. "\\Music"
 RADIO.cmd = modDir .. "\\radio.cmd"
 RADIO.statusFile = modDir .. "\\radio.status"
+RADIO.listFile = modDir .. "\\radio.list"
+RADIO.SPEEDS = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0 }
 function RADIO.send(c)
+    RADIO.seq = RADIO.seq + 1
     local f = io.open(RADIO.cmd, "w")
-    if f then f:write(c) f:close() end
+    if f then f:write(tostring(RADIO.seq) .. " " .. c) f:close() end
 end
-function RADIO.status()
-    local f = io.open(RADIO.statusFile, "r")
-    if not f then return nil end
-    local t = f:read("*l")
-    f:close()
+function RADIO.split(line)
+    local t = {}
+    for v in (line .. "|"):gmatch("(.-)|") do t[#t + 1] = v end
     return t
+end
+-- status line: mode|index|pos ms|len ms|speed|volume|shuffle|title|artist|album  -> S.radio
+function RADIO.poll()
+    if not RADIO.on or S.now - (RADIO.pollT or 0) < 0.2 then return end
+    RADIO.pollT = S.now
+    local f = io.open(RADIO.statusFile, "r")
+    if not f then return end
+    local line = f:read("*l")
+    f:close()
+    if not line or line == "" then return end
+    local t = RADIO.split(line)
+    S.radio = { mode = t[1], idx = tonumber(t[2]) or -1, pos = tonumber(t[3]) or 0, len = tonumber(t[4]) or 0,
+        speed = tonumber(t[5]) or 1, vol = tonumber(t[6]) or 0, shuffle = t[7] == "1",
+        title = t[8] or "", artist = t[9] or "", album = t[10] or "" }
+    if t[1] == "nomusic" then
+        RADIO.on = false
+        S.popupMsg = "RADIO: NO SONGS - PUT MUSIC IN THE GAME FOLDER'S MUSIC FOLDER"
+    end
+    if #RADIO.list == 0 and S.now - (RADIO.listT or 0) > 1 then
+        RADIO.listT = S.now
+        local lf = io.open(RADIO.listFile, "r")
+        if lf then
+            for l in lf:lines() do
+                local x = RADIO.split(l)
+                RADIO.list[#RADIO.list + 1] = { title = x[1] or "?", artist = x[2] or "", album = x[3] or "", len = x[4] or "", file = x[5] or "" }
+            end
+            lf:close()
+        end
+    end
 end
 function RADIO.toggle(on)
     if on == nil then on = not RADIO.on end
     if on then
+        RADIO.list = {}
+        pcall(function() local f = io.open(RADIO.statusFile, "w") if f then f:write("starting|-1|0|0|1|0|1|LOADING SONGS...||") f:close() end end)
+        pcall(function() local f = io.open(RADIO.listFile, "w") if f then f:close() end end)
         RADIO.send("vol " .. tostring(CFG.RadioVolume))
-        pcall(function() local f = io.open(RADIO.statusFile, "w") if f then f:write("STARTING") f:close() end end)
         local cmd = 'start "" /min powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' .. modDir ..
-            '\\radio.ps1" -Music "' .. RADIO.dir .. '" -Cmd "' .. RADIO.cmd .. '" -Status "' .. RADIO.statusFile .. '"'
+            '\\radio.ps1" -Music "' .. RADIO.dir .. '" -Cmd "' .. RADIO.cmd .. '" -Status "' .. RADIO.statusFile ..
+            '" -List "' .. RADIO.listFile .. '"'
         local ok, err = pcall(os.execute, cmd)
         log("radio on (" .. RADIO.dir .. ") " .. (ok and "" or tostring(err)))
-        RADIO.on, RADIO.t0, RADIO.told = true, S.now, false
+        RADIO.on = true
         S.popupMsg = "RADIO ON"
     else
         RADIO.send("stop")
         RADIO.on = false
+        S.radio = nil
         log("radio off")
         S.popupMsg = "RADIO OFF"
     end
 end
-function RADIO.next() if RADIO.on then RADIO.send("next " .. tostring(math.floor(S.now * 1000))) end end
+function RADIO.next() if RADIO.on then RADIO.send("next") end end
+function RADIO.prev() if RADIO.on then RADIO.send("prev") end end
+function RADIO.pauseToggle() if RADIO.on then RADIO.send("toggle") end end
 function RADIO.volume() if RADIO.on then RADIO.send("vol " .. tostring(CFG.RadioVolume)) end end
+function RADIO.play(i) if not RADIO.on then RADIO.toggle(true) end RADIO.send("play " .. tostring(i)) end
+function RADIO.seek(ms) if RADIO.on and S.radio then RADIO.send("seek " .. tostring(math.floor(math.max(0, ms)))) S.radio.pos = ms end end
+function RADIO.seekFrac(f)
+    local r = S.radio
+    if r and r.len > 0 then RADIO.seek(clamp(f, 0, 1) * r.len) end
+end
+function RADIO.speedStep(dir)
+    local r = S.radio
+    local cur, idx = r and r.speed or 1, 3
+    for i, v in ipairs(RADIO.SPEEDS) do if math.abs(v - cur) < 0.01 then idx = i end end
+    idx = clamp(idx + dir, 1, #RADIO.SPEEDS)
+    RADIO.send(string.format("speed %.2f", RADIO.SPEEDS[idx]))
+end
+function RADIO.fmt(ms)
+    ms = math.max(0, math.floor((ms or 0) / 1000))
+    return string.format("%d:%02d", ms // 60, ms % 60)
+end
 -- enemies hear the radio: a noise event at the player every second; loudness and range from the volume
 function RADIO.noise(world)
     if not RADIO.on or CFG.RadioNoise ~= 1 or CFG.RadioVolume <= 0 or S.now - (RADIO.noiseT or 0) < 1 then return end
+    if S.radio and S.radio.mode == "paused" then return end
     RADIO.noiseT = S.now
     pcall(function()
         local v = CFG.RadioVolume / 100
@@ -1928,6 +2085,7 @@ local function cycle(v, n, dir) return ((v or 0) + dir) % n end
 
 menuItems = function(world, pc)
     local M = S.menu
+    M.bar = nil
     local L = {}
     local function add(...) L[#L + 1] = I(...) end
     local back = function() menuBack() end
@@ -2017,18 +2175,39 @@ menuItems = function(world, pc)
             rebuildWatch() saveConfig()
         end)
     elseif M.page == "radio" then
-        M.title, M.sub = "RADIO", "PUT MUSIC IN: " .. RADIO.dir:upper()
+        local r = S.radio
+        M.title, M.sub = "RADIO", RADIO.on and ((r and r.mode == "paused") and "PAUSED" or "ON AIR") or ("PUT SONGS IN: " .. RADIO.dir:upper():sub(-48))
+        M.bar = true
         add("< BACK", back)
         add("RADIO", function() RADIO.toggle() end, function() return (RADIO.on and "ON" or "OFF") .. "  [" .. keyLabel(B.Radio) .. "]" end)
-        add("NOW PLAYING", nil, function() return RADIO.on and ((RADIO.status() or "-"):upper():sub(1, 34)) or "-" end)
-        add("NEXT SONG", function() RADIO.next() end, function() return "[" .. keyLabel(B.RadioNext) .. "]" end)
+        add("SONG", nil, function() return r and r.title ~= "" and r.title:upper():sub(1, 26) or "-" end)
+        add("ARTIST", nil, function() return r and r.artist ~= "" and r.artist:upper():sub(1, 26) or "-" end)
+        add("ALBUM", nil, function() return r and r.album ~= "" and r.album:upper():sub(1, 22) or "-" end)
+        add("TIME (A/D: -/+ 10 S)", function(dir) if r then RADIO.seek(r.pos + dir * 10000) end end,
+            function() return r and (RADIO.fmt(r.pos) .. " / " .. RADIO.fmt(r.len)) or "-" end)
+        add("PLAY / PAUSE", function() RADIO.pauseToggle() end, function() return r and r.mode == "paused" and "[ PAUSED ]" or "[ PLAYING ]" end)
+        add("PREVIOUS / NEXT SONG", function(dir) if dir < 0 then RADIO.prev() else RADIO.next() end end, function() return "PREV  |  NEXT" end)
+        add("SPEED", function(dir) RADIO.speedStep(dir) end, function() return string.format("%.2fx", r and r.speed or 1) end)
         add("VOLUME", stepCfg("RadioVolume", 10, 0, 100, RADIO.volume), function() return tostring(CFG.RadioVolume) .. " %" end)
+        add("SHUFFLE", function() if r then RADIO.send("shuffle " .. (r.shuffle and "0" or "1")) end end,
+            function() return r and (r.shuffle and "ON" or "OFF") or "-" end)
         add("ENEMIES HEAR IT", function() CFG.RadioNoise = (CFG.RadioNoise == 1) and 0 or 1 saveConfig() end,
             function() return CFG.RadioNoise == 1 and "YES" or "NO" end)
+        add("SONG LIST (" .. tostring(#RADIO.list) .. ")", function() menuGo("songs") end, function() return ">" end)
         add("OPEN MUSIC FOLDER", function()
             pcall(os.execute, 'mkdir "' .. RADIO.dir .. '" 2>nul')
             pcall(os.execute, 'start "" explorer "' .. RADIO.dir .. '"')
         end)
+    elseif M.page == "songs" then
+        local r = S.radio
+        M.title, M.sub = "SONG LIST", tostring(#RADIO.list) .. " SONGS  -  ENTER / CLICK TO PLAY"
+        M.bar = true
+        add("< BACK", back)
+        for i, sng in ipairs(RADIO.list) do
+            local name = sng.title .. ((sng.artist ~= "") and ("  -  " .. sng.artist) or "")
+            add(((r and r.idx == i - 1) and "> " or "") .. name:upper():sub(1, 40), function() RADIO.play(i - 1) end,
+                function() return ((sng.len or ""):gsub("^00:", "")) end)
+        end
     elseif M.page == "gameplay" then
         M.title, M.sub = "GAMEPLAY", "SAVED AUTOMATICALLY"
         add("< BACK", back)
@@ -2039,13 +2218,6 @@ menuItems = function(world, pc)
         add("EYE HEIGHT", stepCfg("EyeHeight", 5, 120, 210), function() return tostring(CFG.EyeHeight) .. " CM" end)
         add("CROSSHAIR", function() CFG.Crosshair = (CFG.Crosshair == 1) and 0 or 1 saveConfig() end,
             function() return CFG.Crosshair == 1 and "ON" or "OFF" end)
-        add("WEAPON HANDS", function()
-            CFG.GunHands = (CFG.GunHands == 1) and 0 or 1
-            if valid(S.gunHandsActor) then pcall(gunHandsShow, S.gunHandsActor, false) end
-            S.gunHandsActor, S.gunHandsOn = nil, false
-            glovesHidden(CFG.ShowGloves ~= 1)
-            saveConfig()
-        end, function() return CFG.GunHands == 1 and "POSED ON THE GUN" or "GLOVES" end)
         add("GLOVES", function()
             CFG.ShowGloves = (CFG.ShowGloves == 1) and 0 or 1
             S.handShown = {}
@@ -2076,13 +2248,19 @@ menuDraw = function(L)
             setColor(e, sel and C_RED or (item.act and C_GREY or C_DIM))
             hudShow(e, true)
             local val = item.value and item.value() or ""
-            if item.value and sel and M.page ~= "controls" and val ~= ">" and item.act and not val:find("^%[") then val = "<  " .. val .. "  >" end
+            item.cycle = item.value and item.act and M.page ~= "controls" and val ~= ">" and not val:find("^%[")
             setText(v, val)
             setColor(v, sel and C_WHITE or C_GREY)
             hudShow(v, val ~= "")
+            hudShow(HUD.menu.arrL[i], item.cycle and true or false)
+            hudShow(HUD.menu.arrR[i], item.cycle and true or false)
+            setColor(HUD.menu.arrL[i], sel and C_RED or C_DIM)
+            setColor(HUD.menu.arrR[i], sel and C_RED or C_DIM)
         else
             hudShow(e, false)
             hudShow(v, false)
+            hudShow(HUD.menu.arrL[i], false)
+            hudShow(HUD.menu.arrR[i], false)
         end
     end
 end
@@ -2948,7 +3126,7 @@ local function frame()
             local sel0 = S.menu.sel
             if rawPressed("W") or rawPressed("Up") or wm > 0 then S.menu.sel = math.max(1, S.menu.sel - 1) end
             if rawPressed("S") or rawPressed("Down") or wm < 0 then S.menu.sel = math.min(#L, S.menu.sel + 1) end
-            local row, moved = menuRowUnderMouse(world)
+            local row, moved, mdx = menuRowUnderMouse(world)
             if row and moved then
                 local idx = S.menu.top + row - 1
                 if L[idx] then S.menu.sel = idx end
@@ -2956,7 +3134,20 @@ local function frame()
             if S.menu.sel ~= sel0 then S.menu.quitArm = nil end
             local it = L[S.menu.sel]
             local dir
-            if rawPressed("Enter") or rawPressed("SpaceBar") or (rawPressed("LeftMouseButton") and row ~= nil) then dir = 1 end
+            if rawPressed("Enter") or rawPressed("SpaceBar") then dir = 1 end
+            if rawPressed("LeftMouseButton") and S.menu.bar and S.menuMouseDy and S.menuMouseDy > 276 and S.menuMouseDy < 300
+                and math.abs(S.menuMouseDx or 999) <= 290 then
+                RADIO.seekFrac(((S.menuMouseDx or 0) + 280) / 560)
+            end
+            if rawPressed("LeftMouseButton") and row ~= nil then
+                -- click: on a value row, the left arrow lowers it and the right arrow raises it
+                local cyc = false
+                if it and it.act and it.value and S.menu.page ~= "controls" then
+                    local v = it.value() or ""
+                    cyc = v ~= ">" and not v:find("^%[")
+                end
+                if cyc and mdx and mdx > 60 then dir = (mdx < 205) and -1 or 1 else dir = 1 end
+            end
             if it and it.value and (rawPressed("D") or rawPressed("Right")) then dir = 1 end
             if it and it.value and (rawPressed("A") or rawPressed("Left") or (rawPressed("RightMouseButton") and row ~= nil)) then dir = -1 end
             if it and it.act and dir then
@@ -2995,13 +3186,8 @@ local function frame()
     if pressed(B.FireMode) then toggleFireMode() end
     if pressed(B.Radio) then RADIO.toggle() end
     if pressed(B.RadioNext) then RADIO.next() end
+    RADIO.poll()
     RADIO.noise(world)
-    if RADIO.on and RADIO.t0 and S.now - RADIO.t0 > 2.5 and not RADIO.told then
-        RADIO.told = true
-        local st = RADIO.status()
-        if st and st:find("^NO MUSIC") then S.popupMsg = "RADIO: PUT MUSIC FILES IN THE GAME FOLDER'S MUSIC FOLDER" RADIO.on = false
-        elseif st then S.popupMsg = "RADIO: " .. st:upper():sub(1, 40) end
-    end
     if pressed(B.Interact) then
         local okT, eT = pcall(touchUnderCrosshair, world, heldActor(S.R) ~= nil)
         if not okT then log("touch error: " .. tostring(eT)) end
@@ -3036,7 +3222,8 @@ local function frame()
         if g and shortName(g):find("PipeBomb") then
             throwHeld()
         elseif g and hasMuzzle and (S.reloadAnim or now - (S.equipT or 0) < 0.3) then
-            -- the weapon is lowered (reloading) or still coming up: no shot
+            log("no shot: weapon lowered (reloading / drawing)")
+        elseif g and hasMuzzle then
             -- learn the real shot direction from the first rounds of each gun type
             local c = S.calib[shortName(g)]
             if valid(g.FireDirection) and (not c or c[4] < 3) then
@@ -3242,4 +3429,4 @@ LoopInGameThreadAfterFrames(1, function()
     end
     return false
 end)
-log("BTDesktop 1.2.0 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")
+log("BTDesktop 1.3.0 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")

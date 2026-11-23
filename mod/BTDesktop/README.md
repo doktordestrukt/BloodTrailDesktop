@@ -41,7 +41,7 @@ https://github.com/doktordestrukt/BloodTrailDesktop
 | B | fire mode: SEMI -> BURST -> AUTO (the gun's own `Firingmode`) |
 | R | reload: the weapon dips down, the magazine is swapped, it comes back up (no shooting while lowered) |
 | M | radio on / off: plays the music in the game folder's `Music` folder; enemies hear it (Esc > Radio: volume, next song, on/off for enemies) |
-| . (period) | radio: next song |
+| . (period) | radio: next song (Esc > Radio: pause, speed, seek, song list) |
 | H | crack (the game's own heal, `InhaleCrackSmoke`) |
 | N | night vision |
 | F | flashlight (head lamp) |
@@ -76,9 +76,16 @@ in `BTDesktop.ini` (keys as `Key_<Action>=`).
 ## Radio
 
 Put music files (mp3, wav, wma, m4a, flac) in the `Music` folder inside the Blood Trail game folder
-(the installer creates it) and press M. Songs play shuffled through a small hidden player (`radio.ps1`)
-that stops when you press M again or close the game. While it plays, enemies hear a noise at your
-position every second: the louder the volume, the further away they hear it.
+(the installer creates it) and press M (or Esc > Radio > RADIO). The player runs hidden on the Windows
+media engine and stops when you press M again or close the game.
+
+Esc > Radio shows the song, artist, album and time, and has play / pause, previous / next, speed
+(0.5x - 2x), volume, shuffle and a full SONG LIST (pick any song). Click anywhere on the timeline bar
+to jump in the song (or A / D on the TIME row: -/+ 10 s). While a song plays, a NOW PLAYING panel
+sits above the ammo counter.
+
+Enemies hear it: a noise at your position every second while it plays; the louder the volume, the
+further away they hear it (Esc > Radio > ENEMIES HEAR IT turns that off).
 
 ## Sound
 
