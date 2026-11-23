@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-v1.3.1-ff1f3d?style=for-the-badge&labelColor=0b0b0f" alt="Download"></a>
+  <a href="https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-v1.3.2-ff1f3d?style=for-the-badge&labelColor=0b0b0f" alt="Download"></a>
   <img src="https://img.shields.io/badge/GAME-BLOOD%20TRAIL-8a0012?style=for-the-badge&labelColor=0b0b0f" alt="Blood Trail">
   <img src="https://img.shields.io/badge/UE4SS-3.0.1-ff1f3d?style=for-the-badge&labelColor=0b0b0f" alt="UE4SS 3.0.1">
   <img src="https://img.shields.io/badge/HEADSET-NOT%20REQUIRED-ffffff?style=for-the-badge&labelColor=8a0012" alt="No headset">
@@ -65,7 +65,7 @@
 
 > You need **Blood Trail on Steam** (Windows). Everything else is in the download.
 
-1. Download **`BloodTrailDesktop-v1.3.1.zip`** from [Releases](https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest) and unzip it anywhere.
+1. Download **`BloodTrailDesktop-v1.3.2.zip`** from [Releases](https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest) and unzip it anywhere.
 2. Close the game, double-click **`Install.bat`**. It finds the game through your Steam libraries (or asks for the folder), installs UE4SS if you don't have it, and installs the mod.
 3. Steam → right-click **Blood Trail** → **Properties** → **Launch Options**: `-nohmd`
 4. Start the game from Steam and click into the window. You spawn in the basement.

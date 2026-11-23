@@ -1753,7 +1753,6 @@ local function updateHands(dt, mx, my, moving)
         if e > 0.45 then
             S.touch = nil
             glovesCollide(false)
-            if S.touchGlove then pcall(function() S.touchGlove:DisengageFIngertip(false) end) S.touchGlove = nil end
         end
     end
     if pR then setCtrlRel(S.R, pR, qR) end
@@ -2962,12 +2961,6 @@ local function touchUnderCrosshair(world, useLeft)
     pt = v3(pt.X + fx * 4, pt.Y + fy * 4, pt.Z + fz * 4)
     S.touch = { pt = pt, t0 = S.now, left = useLeft }
     glovesCollide(true)
-    pcall(function()
-        local glove = S.pawn[useLeft and "GraspingHandLeft" or "GraspingHandRight"]
-        glove:SetOverlaps(true)
-        glove:EngageFingertip(false)
-        S.touchGlove = glove
-    end)
     local okB, eB = pcall(S.boardPress, pt, useLeft)
     if not okB then log("touch: board press error " .. tostring(eB)) end
     log(string.format("touch (%s hand, %s)", useLeft and "left" or "right", (ok and res) and "hit" or "air"))
@@ -3514,4 +3507,4 @@ LoopInGameThreadAfterFrames(1, function()
     end
     return false
 end)
-log("BTDesktop 1.3.1 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")
+log("BTDesktop 1.3.2 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")
