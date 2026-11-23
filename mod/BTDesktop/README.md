@@ -29,7 +29,7 @@ https://github.com/doktordestrukt/BloodTrailDesktop
 | W A S D | move (relative to where you look) |
 | Mouse | look (yaw turns the pawn, pitch tilts the view; slower while zoomed) |
 | Arrow keys | turn / look up and down (keyboard alternative to the mouse) |
-| Shift | sprint (not while aiming) |
+| Shift | sprint (not while aiming or crouching) |
 | Ctrl | crouch (head 60 cm lower) |
 | Space | jump (noclip: fly up) |
 | Right mouse (hold) / Z (toggle) | aim down sights: zoom to `AimFOV`, sights centred under the white crosshair |
@@ -39,7 +39,9 @@ https://github.com/doktordestrukt/BloodTrailDesktop
 | Left mouse | trigger of the held gun, a melee swing that really hits, throw a held pipe bomb - or with empty hands: touch what you click on |
 | E | touch / press what is under the crosshair (buttons, board arrows, map pictures, door knobs): the hand reaches out and back (the left hand while you hold a weapon) |
 | B | fire mode: SEMI -> BURST -> AUTO (the gun's own `Firingmode`) |
-| R | reload (full magazine, round chambered, bolt forward) |
+| R | reload: the weapon dips down, the magazine is swapped, it comes back up (no shooting while lowered) |
+| M | radio on / off: plays the music in the game folder's `Music` folder; enemies hear it (Esc > Radio: volume, next song, on/off for enemies) |
+| . (period) | radio: next song |
 | H | crack (the game's own heal, `InhaleCrackSmoke`) |
 | N | night vision |
 | F | flashlight (head lamp) |
@@ -70,6 +72,13 @@ limit, window mode, field of view). CONTROLS rebinds every key (pick a row, pres
 sets mouse sensitivity and hold/toggle aiming. GAMEPLAY: aim zoom, view bob, walk/sprint speed, eye
 height, crosshair, gloves, god mode. WATCH shows what the wrist watch shows in VR. Everything is saved
 in `BTDesktop.ini` (keys as `Key_<Action>=`).
+
+## Radio
+
+Put music files (mp3, wav, wma, m4a, flac) in the `Music` folder inside the Blood Trail game folder
+(the installer creates it) and press M. Songs play shuffled through a small hidden player (`radio.ps1`)
+that stops when you press M again or close the game. While it plays, enemies hear a noise at your
+position every second: the louder the volume, the further away they hear it.
 
 ## Sound
 

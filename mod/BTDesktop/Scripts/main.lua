@@ -51,6 +51,9 @@ local CFG = {
     ShowGloves = 1,           -- 1 = show the game's own gloves on both hands (pinned to the hands, no physics)
     Crosshair = 1,            -- 1 = white crosshair
     ScreenPercentage = 100,   -- resolution scale in % (Esc > Graphics)
+    GunHands = 1,             -- 1 = draw the hands the game poses on each weapon (grip + handguard / pump)
+    RadioVolume = 60,         -- radio volume 0-100 (music from the Music folder in the game folder)
+    RadioNoise = 1,           -- 1 = enemies hear the radio (louder = heard further away)
 }
 
 -- key bindings (Esc > Controls; saved as Key_<Action>= in BTDesktop.ini). UE key names.
@@ -62,7 +65,8 @@ local ACTIONS = {
     { "Reload", "R", "RELOAD" }, { "FireMode", "B", "FIRE MODE (AUTO / SEMI / BURST)" },
     { "Interact", "E", "INTERACT / PRESS" }, { "Holster", "Q", "HOLSTER WEAPON" }, { "Grab", "G", "GRAB / DROP" },
     { "Grenade", "T", "THROW PIPE BOMB" }, { "Crack", "H", "CRACK (HEAL)" }, { "NightVision", "N", "NIGHT VISION" },
-    { "Flashlight", "F", "FLASHLIGHT" }, { "ResetHands", "V", "RESET HANDS" },
+    { "Flashlight", "F", "FLASHLIGHT" }, { "ResetHands", "V", "RESET HANDS" }, { "Radio", "M", "RADIO ON / OFF" },
+    { "RadioNext", "Period", "RADIO: NEXT SONG" },
     { "Slot1", "One", "WEAPON SLOT 1" }, { "Slot2", "Two", "WEAPON SLOT 2" }, { "Slot3", "Three", "WEAPON SLOT 3" },
     { "Slot4", "Four", "WEAPON SLOT 4" }, { "Slot5", "Five", "WEAPON SLOT 5" }, { "Slot6", "Six", "WEAPON SLOT 6" },
     { "Slot7", "Seven", "WEAPON SLOT 7" }, { "Slot8", "Eight", "WEAPON SLOT 8" }, { "Slot9", "Nine", "WEAPON SLOT 9" },
@@ -93,7 +97,7 @@ end
 loadConfig()
 -- write the current settings back into BTDesktop.ini (keeps comments and unknown lines)
 local SAVE_KEYS = { "MouseSensitivity", "AimToggle", "FOV", "AimFOV", "ViewBob", "WalkSpeed", "SprintMultiplier",
-    "EyeHeight", "Crosshair", "ShowGloves", "ScreenPercentage", "ZeroDistance" }
+    "EyeHeight", "Crosshair", "ShowGloves", "ScreenPercentage", "ZeroDistance", "GunHands", "RadioVolume", "RadioNoise" }
 local function saveConfig()
     local path = modDir .. "\\BTDesktop.ini"
     local lines = {}
@@ -1309,10 +1313,40 @@ local function handsSetup()
             if not (valid(par) and fullName(par) == fullName(side[2])) then
                 pcall(function() h:K2_AttachToComponent(side[2], FName("None"), 2, 2, 1, false) end)   -- snap to the controller
             end
-            pcall(function() h:SetActorHiddenInGame(CFG.ShowGloves ~= 1) end)
+            pcall(function() h:SetActorHiddenInGame(CFG.ShowGloves ~= 1 or S.gunHandsOn == true) end)
             pcall(function() h:SetActorEnableCollision(S.touch ~= nil) end)
         end)
     end
+end
+local function glovesHidden(hide)
+    for _, k in ipairs({ "GraspingHandRight", "GraspingHandLeft" }) do
+        pcall(function() S.pawn[k]:SetActorHiddenInGame(hide) end)
+    end
+end
+-- every weapon carries hand meshes posed by the game's artists: the gripping hand (MainHandMesh) and
+-- the support hand on the handguard / pump / under the pistol grip (OffHandMeshL). Show those instead of
+-- the loose gloves: the hands then sit exactly right on every gun.
+local function gunHandsShow(gun, on)
+    local function hasMesh(c)
+        local ok = false
+        pcall(function() ok = valid(c) and valid(c.SkeletalMesh) end)
+        return ok
+    end
+    local shown = false
+    for _, k in ipairs({ "MainHandMesh", "OffHandMeshL" }) do
+        pcall(function()
+            local c = gun[k]
+            if hasMesh(c) then
+                c:SetVisibility(on, true)
+                c:SetHiddenInGame(not on, true)
+                if on then shown = true end
+            end
+        end)
+    end
+    for _, k in ipairs({ "OffHandMeshR", "BoltHandMeshR", "BoltHandMeshL" }) do
+        pcall(function() local c = gun[k] if valid(c) then c:SetVisibility(false, true) c:SetHiddenInGame(true, true) end end)
+    end
+    return shown
 end
 local function glovesCollide(on)
     for _, k in ipairs({ "GraspingHandRight", "GraspingHandLeft" }) do
@@ -1384,12 +1418,12 @@ end
 
 local function updateHands(dt, mx, my, moving)
     local a = S.ads
-    local sprinting = moving and down(B.Sprint) and a < 0.1 and not down(B.Fire)
+    local sprinting = moving and down(B.Sprint) and a < 0.1 and not down(B.Fire) and not down(B.Crouch)
     S.sprintK = (S.sprintK or 0) + ((sprinting and 1 or 0) - (S.sprintK or 0)) * math.min(1, dt * 8)
     -- weapon bob: the gun trails the camera bob a little (less when aiming)
     local bt = S.camBobT or 0
     local bk = (S.camBob or 0) / math.max(0.01, CFG.ViewBob) * (1 - 0.9 * a)
-    local gbx, gby, gbz = 0, -math.sin(bt) * 0.35 * bk, math.cos(2 * bt) * 0.25 * bk
+    local gbx, gby, gbz = 0, 0, 0   -- the weapon is fixed in the view: it only moves with the camera
     local gun = heldActor(S.R)
     local fd
     if gun then pcall(function() if valid(gun.FireDirection) then fd = gun.FireDirection end end) end
@@ -1403,7 +1437,9 @@ local function updateHands(dt, mx, my, moving)
     if gun and CFG.RigidGrip == 1 then
         local gname = fullName(gun)
         if S.vmGun ~= gname then
-            S.vmGun, S.vm, S.gunOffP, S.gunOffQ, S.gunStable, S.gunLock = gname, nil, nil, nil, 0, nil
+            if S.gunHandsActor and valid(S.gunHandsActor) then pcall(gunHandsShow, S.gunHandsActor, false) end
+            S.gunHandsActor, S.gunHandsOn = nil, false
+            S.vmGun, S.vm, S.equipT, S.equipDiag = gname, nil, S.now, false
             local ok, err = pcall(function()
                 local root = gun:K2_GetRootComponent()
                 pcall(function() root:SetSimulatePhysics(false) end)
@@ -1469,10 +1505,14 @@ local function updateHands(dt, mx, my, moving)
                 local pAds = { m[1] - ox, m[2] - oy, m[3] - oz }
                 gp = lerp3(hip, pAds, a)
                 -- sprint: weapon lowered and turned in (military low-ready)
-                if S.sprintK > 0.01 then
-                    local k = S.sprintK
-                    gq = qmul(rotToQuat(-28 * k, -18 * k, 12 * k), gq)
-                    gp = { gp[1] - 4 * k, gp[2] - 4 * k, gp[3] - 7 * k }
+                -- reload: the weapon dips down and rolls in, then comes back up
+                local ra = S.reloadAnim
+                if ra then
+                    local e = S.now - ra.t0
+                    local k = (e < 0.25) and (e / 0.25) or ((e < 0.8) and 1 or math.max(0, 1 - (e - 0.8) / 0.3))
+                    k = k * k * (3 - 2 * k)
+                    gq = qmul(rotToQuat(-28 * k, 6 * k, -28 * k), gq)
+                    gp = { gp[1] - 4 * k, gp[2] - 2 * k, gp[3] - 8 * k }
                 end
             end
             -- The game keeps the weapon attached to the controller with its own grip offset (and may
@@ -1480,38 +1520,41 @@ local function updateHands(dt, mx, my, moving)
             -- weapon lands exactly where it should: controller = weapon * inverse(offset).
             -- offset of the weapon from the controller, measured from both world transforms at the same
             -- moment (works whatever chain the game holds it by: controller, hand, grip slot)
-            local tp, tq = S.gunOffP or { 0, 0, 0 }, S.gunOffQ or { 0, 0, 0, 1 }
+            -- The weapon is attached to the right controller (AttachmentGrip): read its offset every frame
+            -- (exact, nothing to go stale after a weapon switch) and pose the controller so the weapon lands
+            -- on its camera-space pose. If it is not on the controller (yet), place the weapon directly.
+            local tp, tq
             pcall(function()
                 local root = gun:K2_GetRootComponent()
-                local ct = S.R:K2_GetComponentToWorld()
-                local gt = root:K2_GetComponentToWorld()
-                local ctq = { ct.Rotation.X, ct.Rotation.Y, ct.Rotation.Z, ct.Rotation.W }
-                local ic = qconj(ctq)
-                local np = { qrot(ic, gt.Translation.X - ct.Translation.X, gt.Translation.Y - ct.Translation.Y, gt.Translation.Z - ct.Translation.Z) }
-                local nq = qmul(ic, { gt.Rotation.X, gt.Rotation.Y, gt.Rotation.Z, gt.Rotation.W })
-                if S.gunLock then
-                    -- locked: keep using it (re-measuring every frame let one frame of lag shake the gun).
-                    -- Re-lock only if the game really changed the grip (big difference for a long time while
-                    -- the view is still)
-                    local L = S.gunLock
-                    local dl = math.abs(np[1] - L.p[1]) + math.abs(np[2] - L.p[2]) + math.abs(np[3] - L.p[3])
-                    if dl > 4 and S.viewStill then S.gunDrift = (S.gunDrift or 0) + 1 else S.gunDrift = 0 end
-                    if S.gunDrift > 20 then
-                        S.gunLock, S.gunStable, S.gunDrift = nil, 0, 0
-                        local par = "-"
-                        pcall(function() par = fullName(root:GetAttachParent()):match("([^.:]+)$") end)
-                        log(string.format("grip offset changed by %.1f cm (parent %s, offset %.1f %.1f %.1f) - measuring again", dl, par, np[1], np[2], np[3]))
-                    end
-                    if S.gunLock then tp, tq = L.p, L.q return end
+                -- the game attaches it to the hand's grab sphere or glove, both rigid children of the right
+                -- controller: the offset measured from the two world transforms is exact and lag-free
+                if valid(root:GetAttachParent()) then
+                    local ct = S.R:K2_GetComponentToWorld()
+                    local gt = root:K2_GetComponentToWorld()
+                    local ic = qconj({ ct.Rotation.X, ct.Rotation.Y, ct.Rotation.Z, ct.Rotation.W })
+                    tp = { qrot(ic, gt.Translation.X - ct.Translation.X, gt.Translation.Y - ct.Translation.Y, gt.Translation.Z - ct.Translation.Z) }
+                    tq = qmul(ic, { gt.Rotation.X, gt.Rotation.Y, gt.Rotation.Z, gt.Rotation.W })
                 end
-                local d = S.gunOffP and (math.abs(np[1] - S.gunOffP[1]) + math.abs(np[2] - S.gunOffP[2]) + math.abs(np[3] - S.gunOffP[3])) or 99
-                S.gunStable = (d < 0.3) and math.min((S.gunStable or 0) + 1, 30) or 0
-                tp, tq = np, nq
-                S.gunOffP, S.gunOffQ = np, nq
-                if S.gunStable >= 8 then S.gunLock = { p = np, q = nq } end
             end)
-            if not S.gunLock and (S.gunStable or 0) < 5 then
-                -- not (yet) riding on the controller: put the weapon where it belongs directly
+            if S.equipT and not S.equipDiag and S.now - S.equipT > 0.6 then
+                S.equipDiag = true
+                pcall(function()
+                    local root = gun:K2_GetRootComponent()
+                    local par = root:GetAttachParent()
+                    local ct = S.R:K2_GetComponentToWorld()
+                    local gt = root:K2_GetComponentToWorld()
+                    local ic = qconj({ ct.Rotation.X, ct.Rotation.Y, ct.Rotation.Z, ct.Rotation.W })
+                    local np = { qrot(ic, gt.Translation.X - ct.Translation.X, gt.Translation.Y - ct.Translation.Y, gt.Translation.Z - ct.Translation.Z) }
+                    local nq = qmul(ic, { gt.Rotation.X, gt.Rotation.Y, gt.Rotation.Z, gt.Rotation.W })
+                    local sock = "-"
+                    pcall(function() sock = root:GetAttachSocketName():ToString() end)
+                    log(string.format("equip diag %s: parent %s socket %s rel %s | world off %.1f %.1f %.1f q %.2f %.2f %.2f %.2f",
+                        shortName(gun), valid(par) and fullName(par):match("([^.:]+)$") or "NONE", sock,
+                        tp and string.format("%.1f %.1f %.1f q %.2f %.2f %.2f %.2f", tp[1], tp[2], tp[3], tq[1], tq[2], tq[3], tq[4]) or "-",
+                        np[1], np[2], np[3], nq[1], nq[2], nq[3], nq[4]))
+                end)
+            end
+            if not tp then
                 pcall(function()
                     local cl, q = viewBasis()
                     local x, y, z = qrot(q, gp[1], gp[2], gp[3])
@@ -1548,9 +1591,19 @@ local function updateHands(dt, mx, my, moving)
                 pcall(function() gun.PistolStabilizer = true end)
             end
         end
+        if CFG.GunHands == 1 and not S.gunHandsActor then
+            S.gunHandsActor = gun
+            S.gunHandsOn = gunHandsShow(gun, true)
+            glovesHidden(CFG.ShowGloves ~= 1 or S.gunHandsOn)
+        end
         showHandMesh("HandMesh-Right", false)   -- the weapon brings its own gripping hand
-        showHandMesh("HandMesh-Left", CFG.ShowGloves ~= 1)
+        showHandMesh("HandMesh-Left", CFG.ShowGloves ~= 1 and not S.gunHandsOn)
     else
+        if S.gunHandsActor or S.gunHandsOn then
+            if valid(S.gunHandsActor) then pcall(gunHandsShow, S.gunHandsActor, false) end
+            S.gunHandsActor, S.gunHandsOn, S.vmGun = nil, false, nil
+            glovesHidden(CFG.ShowGloves ~= 1)
+        end
         showHandMesh("HandMesh-Right", CFG.ShowGloves ~= 1)
         showHandMesh("HandMesh-Left", CFG.ShowGloves ~= 1)
         local wR, wL = S.free.R, S.free.L
@@ -1718,6 +1771,7 @@ end
 local function menuClose()
     if not S.menu then return end
     S.menu = nil
+    S.menuClosedT = S.now
     if HUD then HUD.showMenu(false) end
     menuCursor(false)
 end
@@ -1749,6 +1803,54 @@ local function menuRowUnderMouse(world)
     local i = math.floor((dy + 220) / 38) + 1
     if i < 1 or i > MENU_ROWS then return nil end
     return i, moved
+end
+
+-- radio: plays the music files from <game folder>\Music through a small hidden PowerShell player
+-- (radio.ps1 in the mod folder; Windows Media Player engine: mp3/wav/wma/m4a/flac)
+local RADIO = { on = false }
+RADIO.root = modDir:match("^(.*)[/\\][Bb][Tt][Vv][Rr][/\\][Bb]inaries") or modDir
+RADIO.dir = RADIO.root .. "\\Music"
+RADIO.cmd = modDir .. "\\radio.cmd"
+RADIO.statusFile = modDir .. "\\radio.status"
+function RADIO.send(c)
+    local f = io.open(RADIO.cmd, "w")
+    if f then f:write(c) f:close() end
+end
+function RADIO.status()
+    local f = io.open(RADIO.statusFile, "r")
+    if not f then return nil end
+    local t = f:read("*l")
+    f:close()
+    return t
+end
+function RADIO.toggle(on)
+    if on == nil then on = not RADIO.on end
+    if on then
+        RADIO.send("vol " .. tostring(CFG.RadioVolume))
+        pcall(function() local f = io.open(RADIO.statusFile, "w") if f then f:write("STARTING") f:close() end end)
+        local cmd = 'start "" /min powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' .. modDir ..
+            '\\radio.ps1" -Music "' .. RADIO.dir .. '" -Cmd "' .. RADIO.cmd .. '" -Status "' .. RADIO.statusFile .. '"'
+        local ok, err = pcall(os.execute, cmd)
+        log("radio on (" .. RADIO.dir .. ") " .. (ok and "" or tostring(err)))
+        RADIO.on, RADIO.t0, RADIO.told = true, S.now, false
+        S.popupMsg = "RADIO ON"
+    else
+        RADIO.send("stop")
+        RADIO.on = false
+        log("radio off")
+        S.popupMsg = "RADIO OFF"
+    end
+end
+function RADIO.next() if RADIO.on then RADIO.send("next " .. tostring(math.floor(S.now * 1000))) end end
+function RADIO.volume() if RADIO.on then RADIO.send("vol " .. tostring(CFG.RadioVolume)) end end
+-- enemies hear the radio: a noise event at the player every second; loudness and range from the volume
+function RADIO.noise(world)
+    if not RADIO.on or CFG.RadioNoise ~= 1 or CFG.RadioVolume <= 0 or S.now - (RADIO.noiseT or 0) < 1 then return end
+    RADIO.noiseT = S.now
+    pcall(function()
+        local v = CFG.RadioVolume / 100
+        cdo("/Script/AIModule.Default__AISense_Hearing"):ReportNoiseEvent(world, S.pawn:K2_GetActorLocation(), v, S.pawn, 400 + 3600 * v, FName("None"))
+    end)
 end
 
 local menuBack, menuItems, menuDraw, menuCapture
@@ -1839,6 +1941,7 @@ menuItems = function(world, pc)
         add("GRAPHICS", function() menuGo("graphics") end, function() return ">" end)
         add("CONTROLS", function() menuGo("controls") end, function() return ">" end)
         add("GAMEPLAY", function() menuGo("gameplay") end, function() return ">" end)
+        add("RADIO", function() menuGo("radio") end, function() return ">" end)
         add(M.quitArm and "QUIT GAME - PRESS AGAIN" or "QUIT GAME", function()
             if not M.quitArm then M.quitArm = true return end
             menuClose() pcall(function() KSL():QuitGame(world, pc, 0, false) end)
@@ -1913,6 +2016,19 @@ menuItems = function(world, pc)
             for _, x in ipairs(ACTIONS) do B[x[1]] = x[2] end
             rebuildWatch() saveConfig()
         end)
+    elseif M.page == "radio" then
+        M.title, M.sub = "RADIO", "PUT MUSIC IN: " .. RADIO.dir:upper()
+        add("< BACK", back)
+        add("RADIO", function() RADIO.toggle() end, function() return (RADIO.on and "ON" or "OFF") .. "  [" .. keyLabel(B.Radio) .. "]" end)
+        add("NOW PLAYING", nil, function() return RADIO.on and ((RADIO.status() or "-"):upper():sub(1, 34)) or "-" end)
+        add("NEXT SONG", function() RADIO.next() end, function() return "[" .. keyLabel(B.RadioNext) .. "]" end)
+        add("VOLUME", stepCfg("RadioVolume", 10, 0, 100, RADIO.volume), function() return tostring(CFG.RadioVolume) .. " %" end)
+        add("ENEMIES HEAR IT", function() CFG.RadioNoise = (CFG.RadioNoise == 1) and 0 or 1 saveConfig() end,
+            function() return CFG.RadioNoise == 1 and "YES" or "NO" end)
+        add("OPEN MUSIC FOLDER", function()
+            pcall(os.execute, 'mkdir "' .. RADIO.dir .. '" 2>nul')
+            pcall(os.execute, 'start "" explorer "' .. RADIO.dir .. '"')
+        end)
     elseif M.page == "gameplay" then
         M.title, M.sub = "GAMEPLAY", "SAVED AUTOMATICALLY"
         add("< BACK", back)
@@ -1923,6 +2039,13 @@ menuItems = function(world, pc)
         add("EYE HEIGHT", stepCfg("EyeHeight", 5, 120, 210), function() return tostring(CFG.EyeHeight) .. " CM" end)
         add("CROSSHAIR", function() CFG.Crosshair = (CFG.Crosshair == 1) and 0 or 1 saveConfig() end,
             function() return CFG.Crosshair == 1 and "ON" or "OFF" end)
+        add("WEAPON HANDS", function()
+            CFG.GunHands = (CFG.GunHands == 1) and 0 or 1
+            if valid(S.gunHandsActor) then pcall(gunHandsShow, S.gunHandsActor, false) end
+            S.gunHandsActor, S.gunHandsOn = nil, false
+            glovesHidden(CFG.ShowGloves ~= 1)
+            saveConfig()
+        end, function() return CFG.GunHands == 1 and "POSED ON THE GUN" or "GLOVES" end)
         add("GLOVES", function()
             CFG.ShowGloves = (CFG.ShowGloves == 1) and 0 or 1
             S.handShown = {}
@@ -2870,13 +2993,41 @@ local function frame()
     for i = 1, 12 do if SLOTS[i] and pressed(B["Slot" .. i]) then equip(i) end end
     if pressed(B.Holster) then dropRight("holster") S.sel = nil end
     if pressed(B.FireMode) then toggleFireMode() end
+    if pressed(B.Radio) then RADIO.toggle() end
+    if pressed(B.RadioNext) then RADIO.next() end
+    RADIO.noise(world)
+    if RADIO.on and RADIO.t0 and S.now - RADIO.t0 > 2.5 and not RADIO.told then
+        RADIO.told = true
+        local st = RADIO.status()
+        if st and st:find("^NO MUSIC") then S.popupMsg = "RADIO: PUT MUSIC FILES IN THE GAME FOLDER'S MUSIC FOLDER" RADIO.on = false
+        elseif st then S.popupMsg = "RADIO: " .. st:upper():sub(1, 40) end
+    end
     if pressed(B.Interact) then
         local okT, eT = pcall(touchUnderCrosshair, world, heldActor(S.R) ~= nil)
         if not okT then log("touch error: " .. tostring(eT)) end
     end
     if pressed(B.Crack) then useCrack() end
     if pressed(B.Grab) then grabNearest() end
-    if pressed(B.Reload) then reload(heldActor(S.R)) end
+    if pressed(B.Reload) and not S.reloadAnim then
+        local g = heldActor(S.R)
+        if g and ammoOf(g) then
+            if S.fire.held then fireSet(false) S.fire.held = false end
+            S.reloadAnim = { t0 = now, gun = g }
+            pcall(function() local snd = g.MagEjectSound if valid(snd) then GS():PlaySoundAtLocation(world, snd, g:K2_GetActorLocation(), { Pitch = 0, Yaw = 0, Roll = 0 }, 1, 1, 0, nil, nil, nil) end end)
+        end
+    end
+    if S.reloadAnim then
+        local ra = S.reloadAnim
+        if not ra.done and now - ra.t0 > 0.55 then
+            ra.done = true
+            local h = heldActor(S.R)
+            if valid(ra.gun) and h and fullName(h) == fullName(ra.gun) then
+                reload(ra.gun)
+                pcall(function() local snd = ra.gun.MagInsertSound if valid(snd) then GS():PlaySoundAtLocation(world, snd, ra.gun:K2_GetActorLocation(), { Pitch = 0, Yaw = 0, Roll = 0 }, 1, 1, 0, nil, nil, nil) end end)
+            end
+        end
+        if now - ra.t0 > 1.1 then S.reloadAnim = nil end
+    end
     if pressed(B.Fire) then
         local g = heldActor(S.R)
         local hasMuzzle = false
@@ -2884,7 +3035,8 @@ local function frame()
         if g and not hasMuzzle and ammoOf(g) then hasMuzzle = true end   -- e.g. the 12 gauge
         if g and shortName(g):find("PipeBomb") then
             throwHeld()
-        elseif g and hasMuzzle then
+        elseif g and hasMuzzle and (S.reloadAnim or now - (S.equipT or 0) < 0.3) then
+            -- the weapon is lowered (reloading) or still coming up: no shot
             -- learn the real shot direction from the first rounds of each gun type
             local c = S.calib[shortName(g)]
             if valid(g.FireDirection) and (not c or c[4] < 3) then
@@ -2957,10 +3109,12 @@ local function frame()
     -- look / free hand / zoom / weapon wheel
     local mx, my = 0, 0
     if S.look and not inMenu then mx, my = axis(pc, "MouseX"), axis(pc, "MouseY") end
+    if now - (S.spawnT or 0) < 0.6 or (S.menuClosedT and now - S.menuClosedT < 0.15) then mx, my = 0, 0 end
+    mx, my = clamp(mx, -30, 30), clamp(my, -30, 30)
     local wheel = inMenu and 0 or axis(pc, "MouseWheelAxis")
     if (CFG.AimToggle == 1 and pressed(B.Aim)) or pressed(B.AimToggle) then S.aimLatch = not S.aimLatch end
     if CFG.AimToggle ~= 1 and pressed(B.Aim) then S.aimLatch = false end
-    local aiming = S.aimLatch == true or (CFG.AimToggle ~= 1 and down(B.Aim))
+    local aiming = (S.aimLatch == true or (CFG.AimToggle ~= 1 and down(B.Aim))) and not S.reloadAnim
     local sens = CFG.MouseSensitivity * (S.fovNow / CFG.FOV)   -- slower turning when zoomed in
     if down("LeftAlt") or down("X") then
         local h = down("LeftAlt") and S.free.R or S.free.L
@@ -3017,7 +3171,8 @@ local function frame()
         pcall(function() S.cm.Velocity = v3(0, 0, 0) end)
     else
         if S.cm and S.baseSpeed then
-            local want = (CFG.WalkSpeed > 0 and CFG.WalkSpeed or S.baseSpeed) * ((down(B.Sprint) and not aiming) and CFG.SprintMultiplier or 1)
+            local want = (CFG.WalkSpeed > 0 and CFG.WalkSpeed or S.baseSpeed) * ((down(B.Sprint) and not aiming and not crouchKey) and CFG.SprintMultiplier or 1)
+            if crouchKey then want = want * 0.55 end
             pcall(function() if S.cm.MaxWalkSpeed ~= want then S.cm.MaxWalkSpeed = want end end)
         end
         if f ~= 0 or r ~= 0 then
@@ -3045,7 +3200,7 @@ local function frame()
     local movingNow = (f ~= 0 or r ~= 0) and not S.noclip
     local onGround = true
     pcall(function() onGround = not S.cm:IsFalling() end)
-    local sprintNow = movingNow and down(B.Sprint) and S.ads < 0.1
+    local sprintNow = movingNow and down(B.Sprint) and S.ads < 0.1 and not crouchKey
     S.camBobT = (S.camBobT or 0) + ((movingNow and onGround) and dt * (sprintNow and 11.5 or 7.5) or 0)
     local bobWant = (movingNow and onGround) and CFG.ViewBob * (sprintNow and 1.8 or 1) * (1 - 0.8 * S.ads) or 0
     S.camBob = (S.camBob or 0) + (bobWant - (S.camBob or 0)) * math.min(1, dt * 6)
@@ -3087,4 +3242,4 @@ LoopInGameThreadAfterFrames(1, function()
     end
     return false
 end)
-log("BTDesktop 1.1.0 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")
+log("BTDesktop 1.2.0 loaded. SelfTest=" .. tostring(CFG.SelfTest) .. ". Keys: Esc > Controls, or README.md in the BTDesktop mod folder")

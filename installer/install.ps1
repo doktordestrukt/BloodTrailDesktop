@@ -12,7 +12,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.1.0"
+$Version = "1.2.0"
 $UE4SSZip = Join-Path $Root "third_party\ue4ss\UE4SS_v3.0.1-1181-g83330635.zip"
 $UE4SSSha = "b9a166a756605b21058a64cde93bcaab1a855dba3553e5c7e6ce0fa8fdfad7b9"
 $Marker = ".installed-by-btdesktop"
@@ -205,6 +205,11 @@ New-Item -ItemType Directory -Force (Join-Path $Dst "Scripts") | Out-Null
 Copy-Item -Force (Join-Path $Src "Scripts\main.lua") (Join-Path $Dst "Scripts\main.lua")
 Copy-Item -Force (Join-Path $Src "README.md") (Join-Path $Dst "README.md")
 Copy-Item -Force (Join-Path $PSScriptRoot "fix_sound.ps1") (Join-Path $Dst "fix_sound.ps1")
+Copy-Item -Force (Join-Path $Src "radio.ps1") (Join-Path $Dst "radio.ps1")
+$music = Join-Path $GameDir "Music"
+if (-not (Test-Path -LiteralPath $music)) { New-Item -ItemType Directory -Force $music | Out-Null }
+Set-Content -LiteralPath (Join-Path $music "PUT YOUR MUSIC HERE.txt") -Value "BloodTrail Desktop radio: put mp3 / wav / wma / m4a / flac files in this folder, then press M in game (or Esc > Radio)." -Encoding ASCII
+Ok "Radio music folder: $music"
 $ini = Join-Path $Dst "BTDesktop.ini"
 if ((Test-Path -LiteralPath $ini) -and -not $ResetConfig) {
     Ok "Kept your BTDesktop.ini (use -ResetConfig for the default one)"

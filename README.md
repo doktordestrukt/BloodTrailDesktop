@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-v1.1.0-ff1f3d?style=for-the-badge&labelColor=0b0b0f" alt="Download"></a>
+  <a href="https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-v1.2.0-ff1f3d?style=for-the-badge&labelColor=0b0b0f" alt="Download"></a>
   <img src="https://img.shields.io/badge/GAME-BLOOD%20TRAIL-8a0012?style=for-the-badge&labelColor=0b0b0f" alt="Blood Trail">
   <img src="https://img.shields.io/badge/UE4SS-3.0.1-ff1f3d?style=for-the-badge&labelColor=0b0b0f" alt="UE4SS 3.0.1">
   <img src="https://img.shields.io/badge/HEADSET-NOT%20REQUIRED-ffffff?style=for-the-badge&labelColor=8a0012" alt="No headset">
@@ -49,7 +49,7 @@
 | | |
 |---|---|
 | **◆ No headset** | Starts straight into the basement hub. SteamVR never needs to open (`-nohmd`). |
-| **◆ Real viewmodel** | Weapons are held through the game's own grip system and locked rock-still to your view. Both hands on the gun. |
+| **◆ Real viewmodel** | Weapons are held through the game's own grip system and locked rock-still to your view, drawn with the hands the game poses on each gun — grip and handguard / pump. |
 | **◆ Zero-deviation aim** | Rounds leave exactly along the muzzle, and the muzzle tracks the point under the crosshair — hip or sights. |
 | **◆ Aim down sights** | Per-weapon sight alignment, zoom with the mouse wheel. |
 | **◆ Full arsenal** | Holster loadout + Glock, 92FS, AK, AR, Vector, shotgun, knife, bat, pipe bombs. SEMI / BURST / AUTO, working reloads. |
@@ -57,6 +57,7 @@
 | **◆ Game actions** | Crack heal, night vision, flashlight, grenades, click-to-press buttons and boards. |
 | **◆ 2D HUD** | Black/red UMG HUD: loadout bar, ammo ticks, fire mode, health, white crosshair. |
 | **◆ Settings menu** | Esc: graphics, rebindable controls, gameplay options and the wrist-watch info, all saved. |
+| **◆ Radio** | Drop your own music in the game's `Music` folder and play it in game. Enemies can hear it — the louder, the further. |
 | **◆ Movement** | Sprint, crouch, jump, military view bob, low-ready when sprinting. |
 | **◆ Sound fixed** | The game mutes itself without VR focus — the installer fixes that. |
 
@@ -64,7 +65,7 @@
 
 > You need **Blood Trail on Steam** (Windows). Everything else is in the download.
 
-1. Download **`BloodTrailDesktop-v1.1.0.zip`** from [Releases](https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest) and unzip it anywhere.
+1. Download **`BloodTrailDesktop-v1.2.0.zip`** from [Releases](https://github.com/doktordestrukt/BloodTrailDesktop/releases/latest) and unzip it anywhere.
 2. Close the game, double-click **`Install.bat`**. It finds the game through your Steam libraries (or asks for the folder), installs UE4SS if you don't have it, and installs the mod.
 3. Steam → right-click **Blood Trail** → **Properties** → **Launch Options**: `-nohmd`
 4. Start the game from Steam and click into the window. You spawn in the basement.
@@ -86,11 +87,12 @@ To play in VR again: run `Uninstall.bat` and remove `-nohmd`.
 | `Space` | jump | `Esc` | menu / change map |
 | `LMB` | fire · melee · throw · touch | `RMB` (hold) / `Z` | aim down sights |
 | `Wheel` | switch weapon (zoom while aiming) | `1`–`9` `0` `-` | pick weapon slot (knife `0`, bat `-`) |
-| `R` | reload | `B` | fire mode |
+| `R` | reload (with animation) | `B` | fire mode |
 | `E` | press / touch what you look at | `Q` | holster |
 | `G` | grab / drop | `T` / `MMB` | throw pipe bomb |
 | `H` | crack (heal) | `N` | night vision |
 | `F` | flashlight | `V` | reset hands |
+| `M` | radio on / off | `.` | next song |
 
 <details>
 <summary><b>Debug keys</b></summary>
@@ -138,9 +140,9 @@ flowchart LR
 |---|---|
 | **Boot** | Without a headset the game never spawns a player. ~1.5 s after a level loads the mod asks the game mode to `RestartPlayer`, and if nothing appears it spawns `WendigoVrChar_C` at the PlayerStart and possesses it. Then it switches the HMD off and takes over camera and hands. The basement's early-access board is acknowledged for you. |
 | **View** | Yaw turns the pawn, pitch tilts `VRReplicatedCamera`. Eye height, crouch, FOV/zoom and a military view bob (step dip, foot sway, roll) are applied to the camera's relative transform. |
-| **Hands** | `Left/RightMotionController` are posed every frame in body space (the camera's parent), so they move in the same frame as you — no lag. The game's physics gloves, which chase the controllers and fly off without VR tracking, are pinned to the controllers with physics off and shown, so the real gloves hold the gun. |
+| **Hands** | `Left/RightMotionController` are posed every frame in body space (the camera's parent), so they move in the same frame as you — no lag. The game's physics gloves, which chase the controllers and fly off without VR tracking, are pinned to the controllers with physics off and shown, so the real gloves are your hands. While a weapon is held, the hand meshes the game poses on every weapon (`MainHandMesh` on the grip, `OffHandMeshL` on the handguard / pump) are shown instead, so both hands sit where they belong. |
 | **Grip** | Each weapon is spawned once per slot and gripped through the pawn's own `TryToGrabObject`, so the game treats it as genuinely held. The grip is switched to VRExpansion's `AttachmentGrip` (a real scene attachment to the hand, not a physics handle) and paused; the weapon stays in the grip list. |
-| **Viewmodel** | The game keeps the weapon on the controller with its own grip offset. The mod measures that offset from both world transforms every frame and poses the controller as *weapon × offset⁻¹*, so the gun lands exactly at its camera-space pose. The offset is measured once and locked, so nothing re-measures (and shakes) frame to frame — perfectly still while walking, strafing or turning. The pose is levelled so the gun's top always points up. |
+| **Viewmodel** | The game keeps the weapon on the controller with its own grip offset. The mod measures that offset from both world transforms every frame and poses the controller as *weapon × offset⁻¹*, so the gun lands exactly at its camera-space pose. The game attaches the weapon to the hand's grab sphere — a rigid child of the controller — so this offset is exact every frame: no lag, no drift after switching weapons, perfectly still while walking, strafing or turning. The pose is levelled so the gun's top always points up. |
 | **Aim** | Every weapon is zeroed at 25 m: the muzzle (`FireDirection`) points at the crosshair at that range, hip or sights, without swinging around with whatever is under the crosshair. Measured from the game's pooled bullets: rounds leave along `FireDirection` with 0.00° deviation, so shots land on the crosshair at the hip and down the sights. |
 | **Weapons** | Trigger = the pawn's `UseHeldItems`. Fire modes = the gun's `Firingmode` (0 auto · 1 semi · 2 burst). Reload fills the magazine, releases the bolt and chambers a round. |
 | **Melee** | Swings trace from the eye; hits go to the NPC's `BludgeonDamage` / `StabbingDamage`, falling back to the same damage event the game's bullets use. |
